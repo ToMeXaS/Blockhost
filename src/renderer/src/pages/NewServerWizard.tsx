@@ -164,7 +164,7 @@ export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props)
         dir,
         ramMb,
         port,
-        eulaAccepted: true
+        eulaAccepted: eula
       })
       setCreatedId(server.id)
       setStep(3)
@@ -362,7 +362,20 @@ export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props)
                 >
                   Retry
                 </Button>
-                <Button onClick={() => onOpen(createdId)}>Go to server page</Button>
+                <Button
+                  variant="danger"
+                  onClick={() =>
+                    void api
+                      .removeServer(createdId, false)
+                      .then(() => {
+                        onCreated()
+                        onCancel()
+                      })
+                      .catch((err) => setError(errorMessage(err)))
+                  }
+                >
+                  Delete
+                </Button>
               </>
             ) : null
           }
