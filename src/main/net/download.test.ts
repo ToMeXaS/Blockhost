@@ -1,0 +1,79 @@
+import { createHash } from 'node:crypto'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { pathExists } from '../util/fs'
+import { tempDir } from '../test-utils'
+import { downloadFile } from './download'
+
+const body = Buffer.from('hello blockhost '.repeat(4096))
+const sha256 = createHash('sha256').update(body).digest('hex')
+let server: Server
+let base: string
+let flakyFailures = 0
+
+beforeAll(async () => {
+  server = createServer((req, res) => {
+    if (req.url === '/missing') {
+      res.statusCode = 404
+      res.end()
+      return
+    }
+    if (req.url === '/flaky' && flakyFailures > 0) {
+      flakyFailures--
+      res.statusCode = 500
+      res.end()
+      return
+    }
+    res.setHeader('content-length', String(body.length))
+    res.end(body)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+})
+
+afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())))
+
+describe('downloadFile', () => {
+  it('downloads to dest, verifies the hash and reports progress', async () => {
+    const dest = join(await tempDir(), 'sub', 'server.jar')
+    const progress: number[] = []
+    await downloadFile({
+      url: `${base}/ok`,
+      dest,
+      hash: { algo: 'sha256', value: sha256.toUpperCase() },
+      onProgress: (received, total) => {
+        expect(total).toBe(body.length)
+        progress.push(received)
+      }
+    })
+    expect(await readFile(dest)).toEqual(body)
+    expect(progress.at(-1)).toBe(body.length)
+    expect(await pathExists(`${dest}.part`)).toBe(false)
+  })
+
+  it('rejects with HASH_MISMATCH and leaves no files behind', async () => {
+    const dest = join(await tempDir(), 'server.jar')
+    await expect(
+      downloadFile({ url: `${base}/ok`, dest, hash: { algo: 'sha1', value: 'abc' }, retries: 0 })
+    ).rejects.toMatchObject({ code: 'HASH_MISMATCH' })
+    expect(await pathExists(dest)).toBe(false)
+    expect(await pathExists(`${dest}.part`)).toBe(false)
+  })
+
+  it('retries failed attempts', async () => {
+    flakyFailures = 2
+    const dest = join(await tempDir(), 'server.jar')
+    await downloadFile({ url: `${base}/flaky`, dest, retries: 3, retryDelayMs: 1 })
+    expect(await readFile(dest)).toEqual(body)
+  })
+
+  it('gives up after the retry budget', async () => {
+    const dest = join(await tempDir(), 'server.jar')
+    await expect(
+      downloadFile({ url: `${base}/missing`, dest, retries: 1, retryDelayMs: 1 })
+    ).rejects.toMatchObject({ code: 'HTTP' })
+  })
+})
