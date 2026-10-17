@@ -72,6 +72,9 @@ export class ServerInstaller {
 
   async retry(id: string): Promise<ServerRecord> {
     if (this.jobs.has(id)) throw new AppError('INSTALLING', 'This server is already installing')
+    if (this.deps.store.get(id).installState !== 'failed') {
+      throw new AppError('NOT_FAILED', 'Only a failed installation can be retried')
+    }
     const rec = await this.deps.store.update(id, { installState: 'installing' })
     this.startJob(id)
     return rec

@@ -105,6 +105,23 @@ describe('ServerInstaller', () => {
     expect(store.get(ID).installState).toBe('ready')
   })
 
+  it('rejects retry on a server that is not failed', async () => {
+    const { install, installer, input } = await setup()
+    await installer.create(input)
+    await installer.waitFor(ID)
+    install.mockClear()
+    await expect(installer.retry(ID)).rejects.toMatchObject({ code: 'NOT_FAILED' })
+    expect(install).not.toHaveBeenCalled()
+  })
+
+  it('rejects retry while an install is already in flight', async () => {
+    const { installer, input } = await setup()
+    await installer.create(input)
+    expect(installer.isInstalling(ID)).toBe(true)
+    await expect(installer.retry(ID)).rejects.toMatchObject({ code: 'INSTALLING' })
+    await installer.waitFor(ID)
+  })
+
   it('validates EULA, unique names and empty folders', async () => {
     const { root, installer, input } = await setup()
     await expect(installer.create({ ...input, eulaAccepted: false })).rejects.toMatchObject({
