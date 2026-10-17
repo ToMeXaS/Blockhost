@@ -1,0 +1,71 @@
+import type { Bridge, EventChannel, EventPayloads, InvokeChannel } from '../../../shared/api'
+import type {
+  ApiError,
+  CreateServerInput,
+  NetInfo,
+  PropertyEntry,
+  ServerPatch,
+  ServerType,
+  ServerView,
+  SystemInfo,
+  UpdateResult,
+  VersionInfo
+} from '../../../shared/types'
+
+export class ApiCallError extends Error {
+  readonly code: string
+  readonly details?: Record<string, unknown>
+
+  constructor(error: ApiError) {
+    super(error.message)
+    this.name = 'ApiCallError'
+    this.code = error.code
+    this.details = error.details
+  }
+}
+
+const bridge: Bridge = window.blockhost
+
+async function call<T>(channel: InvokeChannel, ...args: unknown[]): Promise<T> {
+  const result = await bridge.invoke(channel, ...args)
+  if (!result.ok) throw new ApiCallError(result.error)
+  return result.data as T
+}
+
+export const api = {
+  listVersions: (type: ServerType) => call<VersionInfo[]>('providers:listVersions', type),
+  listBuilds: (type: ServerType, version: string) =>
+    call<VersionInfo[]>('providers:listBuilds', type, version),
+
+  listServers: () => call<ServerView[]>('servers:list'),
+  createServer: (input: CreateServerInput) => call<ServerView>('servers:create', input),
+  retryInstall: (id: string) => call<ServerView>('servers:retryInstall', id),
+  updateServer: (id: string, patch: ServerPatch) => call<UpdateResult>('servers:update', id, patch),
+  removeServer: (id: string, keepFiles: boolean) => call<void>('servers:remove', id, keepFiles),
+  start: (id: string) => call<void>('servers:start', id),
+  stop: (id: string) => call<void>('servers:stop', id),
+  restart: (id: string) => call<void>('servers:restart', id),
+  kill: (id: string) => call<void>('servers:kill', id),
+  sendCommand: (id: string, command: string) => call<void>('servers:sendCommand', id, command),
+  getLog: (id: string) => call<string[]>('servers:getLog', id),
+  getInstallLog: (id: string) => call<string[]>('servers:getInstallLog', id),
+  readProperties: (id: string) => call<PropertyEntry[]>('servers:readProperties', id),
+  writeProperties: (id: string, entries: PropertyEntry[]) =>
+    call<void>('servers:writeProperties', id, entries),
+  openFolder: (id: string) => call<void>('servers:openFolder', id),
+
+  installJava: (major: number) => call<void>('java:install', major),
+  systemInfo: () => call<SystemInfo>('system:info'),
+  netInfo: (port: number) => call<NetInfo>('system:netInfo', port),
+  checkPort: (port: number) => call<boolean>('system:checkPort', port),
+  pickFolder: () => call<string | null>('system:pickFolder'),
+  pickJava: () => call<string | null>('system:pickJava'),
+  openExternal: (url: string) => call<void>('system:openExternal', url),
+
+  on: <C extends EventChannel>(channel: C, listener: (payload: EventPayloads[C]) => void) =>
+    bridge.on(channel, listener)
+}
+
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
