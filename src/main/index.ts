@@ -3,6 +3,7 @@ import { autoUpdater } from 'electron-updater'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import type { EventChannel, EventPayloads } from '../shared/api'
+import { AppError } from './errors'
 import { registerIpc } from './ipc'
 import { createServices, type Services } from './services'
 import { UpdateService } from './updater'
@@ -58,7 +59,12 @@ async function confirmQuit(finish: () => void = quitNow): Promise<void> {
       ids.map((id) => processes.waitForExit(id, QUIT_STOP_TIMEOUT_MS))
     )
     await Promise.all(ids.filter((_, i) => !stopped[i]).map((id) => processes.kill(id)))
-    finish()
+    try {
+      finish()
+    } catch (err) {
+      quitting = false
+      console.error('Blockhost: failed to finish quit', err)
+    }
   } finally {
     confirming = false
   }
@@ -66,11 +72,18 @@ async function confirmQuit(finish: () => void = quitNow): Promise<void> {
 
 function requestUpdateInstall(): void {
   if (!updates) return
+  if (updates.status().state !== 'ready')
+    throw new AppError('NO_UPDATE', 'No update is ready to install')
   if (shouldConfirmQuit()) {
     void confirmQuit(() => updates!.install())
   } else {
     quitting = true
-    updates.install()
+    try {
+      updates.install()
+    } catch (err) {
+      quitting = false
+      throw err
+    }
   }
 }
 
@@ -108,7 +121,7 @@ function createWindow(): void {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (event, url) => {
-    if (new URL(url).origin !== new URL(win.webContents.getURL()).origin) event.preventDefault()
+    if (url !== win.webContents.getURL()) event.preventDefault()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -127,33 +140,44 @@ app.on('before-quit', (event) => {
 
 app.on('window-all-closed', () => app.quit())
 
-app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.blockhost.app')
-  app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
-  try {
-    services = await createServices({
-      dataDir: join(app.getPath('appData'), 'Blockhost'),
-      serversDir: join(app.getPath('documents'), 'MinecraftServers'),
-      send
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+
+  app.whenReady().then(async () => {
+    electronApp.setAppUserModelId('com.blockhost.app')
+    app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+    try {
+      services = await createServices({
+        dataDir: join(app.getPath('appData'), 'Blockhost'),
+        serversDir: join(app.getPath('documents'), 'MinecraftServers'),
+        send
+      })
+    } catch (err) {
+      dialog.showErrorBox(
+        'Blockhost could not start',
+        err instanceof Error ? err.message : String(err)
+      )
+      app.exit(1)
+      return
+    }
+    updates = new UpdateService({
+      updater: autoUpdater,
+      enabled: app.isPackaged,
+      currentVersion: app.getVersion(),
+      emit: (status) => send('update:status', status)
     })
-  } catch (err) {
-    dialog.showErrorBox(
-      'Blockhost could not start',
-      err instanceof Error ? err.message : String(err)
-    )
-    app.exit(1)
-    return
-  }
-  updates = new UpdateService({
-    updater: autoUpdater,
-    enabled: app.isPackaged,
-    currentVersion: app.getVersion(),
-    emit: (status) => send('update:status', status)
+    registerIpc(services, () => mainWindow, {
+      status: () => updates!.status(),
+      requestInstall: requestUpdateInstall
+    })
+    createWindow()
+    updates.start()
   })
-  registerIpc(services, () => mainWindow, {
-    status: () => updates!.status(),
-    requestInstall: requestUpdateInstall
-  })
-  createWindow()
-  updates.start()
-})
+}

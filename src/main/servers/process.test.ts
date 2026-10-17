@@ -122,6 +122,14 @@ describe('ProcessManager', () => {
     expect(manager.getLog('s1')).toContain('> say hi')
   })
 
+  it('logs stdin errors instead of crashing', async () => {
+    const { child, manager } = setup()
+    manager.start(rec, 'java')
+    child.stdin.emit('error', new Error('EPIPE'))
+    await tick()
+    expect(manager.getLog('s1')).toContain('[Blockhost] Could not write to the server: EPIPE')
+  })
+
   it('rejects commands when not running', () => {
     const { manager } = setup()
     expect(() => manager.sendCommand('s1', 'list')).toThrow(

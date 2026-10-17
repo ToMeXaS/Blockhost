@@ -102,6 +102,10 @@ export class ProcessManager {
     entry.child = child
     this.setStatus(rec.id, 'starting')
 
+    child.stdin.on('error', (err: Error) => {
+      this.append(rec.id, `[Blockhost] Could not write to the server: ${err.message}`)
+    })
+
     const onLine = (line: string): void => {
       const clean = stripAnsi(line)
       this.append(rec.id, clean)
