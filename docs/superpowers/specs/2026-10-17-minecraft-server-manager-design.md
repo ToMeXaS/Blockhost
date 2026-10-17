@@ -79,22 +79,25 @@ interface ServerProvider {
   }): Promise<LaunchSpec>;
 }
 
-type LaunchSpec =
-  | { kind: 'jar'; jar: string }              // java <jvm> -jar <jar> nogui
-  | { kind: 'argsFile'; argsFile: string };   // java <jvm> @<argsFile> nogui (modern Forge/NeoForge)
+// Arguments placed after the JVM memory/extra args and before `nogui`.
+// e.g. ['-jar', 'server.jar'] or ['@libraries/net/neoforged/neoforge/26.3.0.88/win_args.txt']
+interface LaunchSpec { args: string[] }
 ```
 
 Adding a new server type = one new provider file + registration.
 
-Per-provider notes:
-- **Vanilla**: `piston-meta.mojang.com/mc/game/version_manifest_v2.json` -> version JSON -> `downloads.server` (sha1 verified). Versions without a server download are hidden.
-- **Paper / Purpur**: versions and builds from their APIs; download jar; verify hash where provided.
-- **Fabric**: download the server launcher jar for (game version, latest stable loader, latest installer).
-- **Forge / NeoForge**: download installer jar, run `java -jar installer.jar --installServer` in the server dir with the managed Java, stream its output into the install log. The generated `libraries/.../win_args.txt` becomes the args file. Legacy Forge (pre-1.17) yields a plain jar.
+Per-provider notes (APIs verified 2026-10-17; Minecraft now uses `26.x` version numbers alongside legacy `1.x`):
+- **Vanilla**: `piston-meta.mojang.com/mc/game/version_manifest_v2.json` -> version JSON -> `downloads.server` (sha1 verified). Versions without a server download fail install with a clear message.
+- **Paper**: Fill v3 API `fill.papermc.io/v3/projects/paper` (`/versions`, `/versions/{v}/builds`, `downloads["server:default"]` with sha256).
+- **Purpur**: `api.purpurmc.org/v2/purpur` (`/{v}` builds, `/{v}/{build}` md5, `/{v}/{build}/download`).
+- **Fabric**: download the server launcher jar for (game version, latest stable loader, latest stable installer) from `meta.fabricmc.net/v2`.
+- **Forge**: `promotions_slim.json` (recommended, else latest) -> maven installer. Versions >= 1.12.2 only (older ones use irregular version naming).
+- **NeoForge**: maven versions API; NeoForge `21.1.x` -> MC `1.21.1`, `21.0.x` -> `1.21`, `26.1.2.x` -> `26.1.2`, `26.3.0.x` -> `26.3`.
+- **Forge / NeoForge install**: run `java -jar installer.jar --installServer` in the server dir with the server's Java and stream its output into the install log. The launch args come from the `run.bat` line containing `@user_jvm_args.txt` (dropping `java`, `@user_jvm_args.txt` and `%*`); Forge's `--onlyCheckJava` pre-check line is ignored. Legacy Forge (no `run.bat`) falls back to `-jar forge-*.jar`.
 
 ### 3.2 Java management
 
-- `requirements.ts`: MC >= 1.20.5 -> Java 21; 1.17-1.20.4 -> 17; <= 1.16.5 -> 8. Snapshots/unknown -> 21.
+- `requirements.ts`: the source of truth is the Mojang version JSON's `javaVersion.majorVersion` (cached), normalized to an available Temurin LTS: <=8 -> 8, 9-17 -> 17 (e.g. 1.17's 16), 18-21 -> 21, 22-25 -> 25. Offline fallback by version number: `26.x`+ -> 25; >= 1.20.5 -> 21; >= 1.17 -> 17; older -> 8; unparseable -> 25.
 - Managed JREs stored at `%APPDATA%/Blockhost/java/temurin-<major>/`, downloaded from the Adoptium API (windows, x64, jre, hotspot), zip extracted, checksum verified. Downloaded once, shared by all servers needing that major.
 - Each server has an optional `javaPath` override; validated on save via `java -version`, major version compared to the requirement (warning, not a block, on mismatch).
 
@@ -137,7 +140,7 @@ Install writes `eula.txt` (`eula=true`) and an initial `server.properties` conta
 ### 4.3 Server detail (tabs)
 - **Console**: streaming log (ANSI stripped), command input with up/down history, Start/Stop/Restart.
 - **Properties**: form for common keys (motd, max-players, gamemode, difficulty, pvp, online-mode, white-list, view-distance, server-port) plus an "Advanced" raw key/value table. Saving while running shows "takes effect after restart". Unknown keys are preserved.
-- **Settings**: RAM, Java override path, extra JVM args, Open folder, Delete server (confirm; option to keep files). Changing the port here also updates `server.properties`.
+- **Settings**: RAM, Java override path, extra JVM args, Open folder, Delete server (confirm; option to keep files). The port is edited via `server-port` in the Properties tab and synced back to the server record (`servers.update` also accepts `port` and writes it into `server.properties`).
 - **Connect**: LAN IP:port, public IP:port (fetched on open from api.ipify.org), copy buttons, collapsible port-forwarding guide (forward TCP <port>; allow Java through Windows Firewall).
 
 ## 5. Data flow (IPC)
@@ -155,7 +158,8 @@ All handler inputs are validated with zod. Executable paths come only from the m
 
 ## 6. Process lifecycle
 
-- Spawn: `<java> -Xms<ram/2>M -Xmx<ram>M <jvmArgs> (-jar <jar> | @<argsFile>) nogui`, cwd = server dir, `windowsHide: true`.
+- Spawn: `<java> -Xms<ram/2>M -Xmx<ram>M -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 <jvmArgs> <launch.args> nogui`, cwd = server dir, `windowsHide: true`.
+- A custom Java path is accepted only if it came from the main-process file picker in this session (or is unchanged), so the renderer can't make main execute arbitrary binaries.
 - Status: `starting` on spawn; `running` when a log line matches `/Done \(\d+(\.\d+)?s\)!/`; `stopped` on exit after a requested stop; `crashed` on unrequested exit.
 - Log: per-server ring buffer of 5,000 lines; the console view backfills, then streams.
 - Stop: write `stop\n` to stdin; if not exited after 30 s, the UI offers Force kill (`taskkill /PID <pid> /T /F`).
