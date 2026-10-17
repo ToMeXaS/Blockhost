@@ -1,0 +1,26 @@
+appId: com.blockhost.app
+productName: Blockhost
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!docs/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!vitest*.config.ts'
+  - '!{.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+win:
+  executableName: Blockhost
+  target: nsis
+nsis:
+  artifactName: Blockhost-${version}-setup.${ext}
+  oneClick: true
+  perMachine: false
+  shortcutName: Blockhost
+  uninstallDisplayName: Blockhost
+  createDesktopShortcut: always
+npmRebuild: false
