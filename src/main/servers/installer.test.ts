@@ -135,6 +135,12 @@ describe('ServerInstaller', () => {
     await expect(installer.create({ ...input, name: 'Other' })).rejects.toMatchObject({
       code: 'DIR_IN_USE'
     })
+    await expect(
+      installer.create({ ...input, name: 'Inside', dir: join(input.dir, 'nested') })
+    ).rejects.toMatchObject({ code: 'DIR_IN_USE' })
+    await expect(
+      installer.create({ ...input, name: 'Containing', dir: join(root, 'servers') })
+    ).rejects.toMatchObject({ code: 'DIR_IN_USE' })
     const busy = join(root, 'busy')
     await mkdir(busy)
     await writeFile(join(busy, 'file.txt'), '')

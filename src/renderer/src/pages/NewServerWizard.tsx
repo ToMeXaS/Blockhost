@@ -22,6 +22,7 @@ interface Props {
 
 const EULA_URL = 'https://aka.ms/MinecraftEULA'
 const NAME_PATTERN = /^[\w .()-]+$/
+const RESERVED_DEVICE_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i
 const STEP_TITLES = ['Type & version', 'Settings', 'Install']
 
 function firstFreePort(servers: ServerView[]): number {
@@ -131,9 +132,15 @@ export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props)
     ? 'Enter a name'
     : !NAME_PATTERN.test(trimmedName)
       ? 'Use letters, numbers, spaces, dots, dashes or brackets'
-      : servers.some((s) => s.name.toLowerCase() === trimmedName.toLowerCase())
-        ? 'Another server already uses this name'
-        : null
+      : /^[. ]+$/.test(trimmedName)
+        ? 'This name is not allowed'
+        : /[. ]$/.test(trimmedName)
+          ? 'The name cannot end with a dot or space'
+          : RESERVED_DEVICE_NAMES.test(trimmedName)
+            ? 'This name is reserved by Windows'
+            : servers.some((s) => s.name.toLowerCase() === trimmedName.toLowerCase())
+              ? 'Another server already uses this name'
+              : null
   const portValid = Number.isInteger(port) && port >= 1 && port <= 65535
   const portConflict = servers.find((s) => s.port === port)
   const portHint = !portValid

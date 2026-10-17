@@ -25,8 +25,18 @@ export interface InstallerDeps {
 }
 
 const MAX_LOG_LINES = 2000
-const samePath = (a: string, b: string): boolean =>
-  resolve(a).toLowerCase() === resolve(b).toLowerCase()
+
+function withSep(path: string): string {
+  const resolved = resolve(path)
+  return resolved.endsWith('\\') ? resolved : `${resolved}\\`
+}
+
+/** True if `a` and `b` are the same folder, or one is nested inside the other. */
+const overlapsPath = (a: string, b: string): boolean => {
+  const normA = withSep(a).toLowerCase()
+  const normB = withSep(b).toLowerCase()
+  return normA === normB || normA.startsWith(normB) || normB.startsWith(normA)
+}
 
 export class ServerInstaller {
   private readonly deps: InstallerDeps
@@ -45,7 +55,7 @@ export class ServerInstaller {
     if (existing.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
       throw new AppError('NAME_TAKEN', `A server named "${name}" already exists`)
     }
-    if (existing.some((s) => samePath(s.dir, input.dir))) {
+    if (existing.some((s) => overlapsPath(s.dir, input.dir))) {
       throw new AppError('DIR_IN_USE', 'Another server already uses this folder')
     }
     if (!(await isEmptyOrMissingDir(input.dir))) {

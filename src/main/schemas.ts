@@ -12,12 +12,17 @@ export const versionSchema = z
   .regex(/^[\w.+-]+$/)
 export const portSchema = z.number().int().min(1).max(65535)
 export const ramSchema = z.number().int().min(512).max(65536)
+const RESERVED_DEVICE_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i
+
 export const nameSchema = z
   .string()
   .trim()
   .min(1)
   .max(48)
   .regex(/^[\w .()-]+$/, 'Use letters, numbers, spaces, dots, dashes or brackets')
+  .refine((name) => !/^[. ]+$/.test(name), 'This name is not allowed')
+  .refine((name) => !/[. ]$/.test(name), 'The name cannot end with a dot or space')
+  .refine((name) => !RESERVED_DEVICE_NAMES.test(name), 'This name is reserved by Windows')
 
 export const createServerSchema = z.object({
   name: nameSchema,
@@ -43,6 +48,10 @@ const jvmArgSchema = z
   .max(200)
   .regex(/^-\S+$/, 'JVM arguments must start with "-"')
   .refine((arg) => !/OnError|OnOutOfMemoryError/i.test(arg), 'This JVM option is not allowed')
+  .refine(
+    (arg) => !/^-(agentpath|agentlib|javaagent):/i.test(arg),
+    'This JVM option is not allowed'
+  )
 
 export const serverPatchSchema = z.strictObject({
   name: nameSchema.optional(),

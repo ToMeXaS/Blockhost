@@ -4,6 +4,7 @@ import {
   createServerSchema,
   httpsUrlSchema,
   javaMajorSchema,
+  nameSchema,
   propertyEntriesSchema,
   serverPatchSchema
 } from './schemas'
@@ -37,6 +38,22 @@ describe('createServerSchema', () => {
   })
 })
 
+describe('nameSchema', () => {
+  it('accepts normal names', () => {
+    expect(nameSchema.safeParse('Survival (2026)').success).toBe(true)
+  })
+
+  it('rejects dot/space-only names, trailing dots/spaces and reserved device names', () => {
+    expect(nameSchema.safeParse('.').success).toBe(false)
+    expect(nameSchema.safeParse('..').success).toBe(false)
+    expect(nameSchema.safeParse('name.').success).toBe(false)
+    expect(nameSchema.safeParse('CON').success).toBe(false)
+    expect(nameSchema.safeParse('con').success).toBe(false)
+    expect(nameSchema.safeParse('nul.txt').success).toBe(false)
+    expect(nameSchema.safeParse('COM1').success).toBe(false)
+  })
+})
+
 describe('serverPatchSchema', () => {
   it('accepts partial patches and null javaPath', () => {
     expect(serverPatchSchema.parse({ ramMb: 2048, javaPath: null })).toEqual({
@@ -59,6 +76,12 @@ describe('serverPatchSchema', () => {
     expect(serverPatchSchema.safeParse({ jvmArgs: ['-XX:OnOutOfMemoryError=calc'] }).success).toBe(
       false
     )
+  })
+
+  it('blocks native agent JVM options', () => {
+    expect(serverPatchSchema.safeParse({ jvmArgs: ['-agentpath:evil.dll'] }).success).toBe(false)
+    expect(serverPatchSchema.safeParse({ jvmArgs: ['-agentlib:evil'] }).success).toBe(false)
+    expect(serverPatchSchema.safeParse({ jvmArgs: ['-javaagent:evil.jar'] }).success).toBe(false)
   })
 })
 
