@@ -74,7 +74,7 @@ export async function createServices(opts: {
     java,
     probeJava,
     isPortFree: (port) => isPortFree(port),
-    removeDir: (dir) => rm(dir, { recursive: true, force: true })
+    removeDir: (dir) => rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
   })
   return {
     paths: { dataDir, serversDir },

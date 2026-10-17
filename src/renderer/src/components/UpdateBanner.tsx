@@ -35,7 +35,9 @@ export function UpdateBanner() {
 
   const install = () => {
     setInstallError(null)
-    api.installUpdate().catch((err: unknown) => setInstallError(errorMessage(err)))
+    api
+      .installUpdate()
+      .catch((err: unknown) => setInstallError(errorMessage(err).split('\n')[0]!.slice(0, 200)))
   }
 
   if (status.state === 'available') {
@@ -69,9 +71,10 @@ export function UpdateBanner() {
   }
 
   if (status.state === 'error') {
+    const message = (status.message ?? '').split('\n')[0]!.slice(0, 200)
     return (
       <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-900/60 px-6 py-2 text-sm text-zinc-300">
-        <span>Couldn&apos;t check for updates: {status.message}</span>
+        <span>Couldn&apos;t check for updates: {message}</span>
         <Button variant="ghost" onClick={() => setDismissed(true)}>
           Dismiss
         </Button>

@@ -4,7 +4,11 @@
   "description": "Easy Minecraft server manager for Windows",
   "main": "./out/main/index.js",
   "author": "ToMeXaS",
-  "homepage": "https://electron-vite.org",
+  "homepage": "https://github.com/ToMeXaS/blockhost",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ToMeXaS/blockhost.git"
+  },
   "scripts": {
     "format": "prettier --write .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
