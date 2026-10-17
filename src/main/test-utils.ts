@@ -2,8 +2,10 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { AppError } from './errors'
+import type { RunJava } from './java/run'
 import type { HttpClient } from './net/http'
 import type { DownloadFn, DownloadOptions } from './net/download'
+import type { ProviderDeps, ProviderInstallOptions } from './providers/types'
 
 export function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'blockhost-test-'))
@@ -37,4 +39,25 @@ export function fakeDownload(): { calls: DownloadOptions[]; fn: DownloadFn } {
     await writeFile(opts.dest, 'x')
   }
   return { calls, fn }
+}
+
+export function fakeProviderDeps(
+  routes: Record<string, unknown>,
+  runJava: RunJava = async () => 0
+) {
+  const http = fakeHttp(routes)
+  const dl = fakeDownload()
+  const deps: ProviderDeps = { http, download: dl.fn, runJava }
+  return { http, dl, deps }
+}
+
+export function installOpts(dir: string, version: string, build?: string): ProviderInstallOptions {
+  return {
+    dir,
+    version,
+    build,
+    javaPath: 'C:/java/bin/java.exe',
+    onLog: () => {},
+    onProgress: () => {}
+  }
 }
