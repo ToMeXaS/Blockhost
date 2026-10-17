@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { ErrorText } from './components/ui'
 import { useServers } from './hooks/useServers'
 import { api } from './lib/api'
+import { NewServerWizard } from './pages/NewServerWizard'
 import { ServerList } from './pages/ServerList'
 
 type Route = { name: 'list' } | { name: 'new' } | { name: 'server'; id: string }
 
 export default function App() {
-  const { servers, loaded, error } = useServers()
+  const { servers, loaded, error, refresh } = useServers()
   const [route, setRoute] = useState<Route>({ name: 'list' })
   const [offline, setOffline] = useState(false)
 
@@ -43,7 +44,14 @@ export default function App() {
             onNew={() => setRoute({ name: 'new' })}
           />
         )}
-        {route.name === 'new' && <p className="p-6 text-zinc-400">New server wizard</p>}
+        {route.name === 'new' && (
+          <NewServerWizard
+            servers={servers}
+            onCancel={goList}
+            onCreated={() => void refresh()}
+            onOpen={openServer}
+          />
+        )}
         {route.name === 'server' && <p className="p-6 text-zinc-400">{current?.name}</p>}
       </main>
     </div>
