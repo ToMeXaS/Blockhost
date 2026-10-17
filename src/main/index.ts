@@ -1,6 +1,58 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell, type MessageBoxOptions } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import type { EventChannel, EventPayloads } from '../shared/api'
+import { registerIpc } from './ipc'
+import { createServices, type Services } from './services'
+
+const QUIT_STOP_TIMEOUT_MS = 60_000
+
+let mainWindow: BrowserWindow | null = null
+let services: Services | null = null
+let quitting = false
+let confirming = false
+
+function send<C extends EventChannel>(channel: C, payload: EventPayloads[C]): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+}
+
+function shouldConfirmQuit(): boolean {
+  return !quitting && !!services && services.processes.activeIds().length > 0
+}
+
+async function confirmQuit(): Promise<void> {
+  if (confirming || !services) return
+  confirming = true
+  try {
+    const { processes } = services
+    const ids = processes.activeIds()
+    const options: MessageBoxOptions = {
+      type: 'question',
+      buttons: ['Stop servers and quit', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Blockhost',
+      message:
+        ids.length === 1
+          ? 'A server is still running.'
+          : `${ids.length} servers are still running.`,
+      detail: 'Blockhost will send "stop" to each server so the worlds are saved, then quit.'
+    }
+    const { response } = mainWindow
+      ? await dialog.showMessageBox(mainWindow, options)
+      : await dialog.showMessageBox(options)
+    if (response !== 0) return
+    quitting = true
+    for (const id of ids) processes.stop(id)
+    const stopped = await Promise.all(
+      ids.map((id) => processes.waitForExit(id, QUIT_STOP_TIMEOUT_MS))
+    )
+    await Promise.all(ids.filter((_, i) => !stopped[i]).map((id) => processes.kill(id)))
+    app.quit()
+  } finally {
+    confirming = false
+  }
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -19,11 +71,24 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+  mainWindow = win
 
   win.on('ready-to-show', () => win.show())
+  win.on('close', (event) => {
+    if (shouldConfirmQuit()) {
+      event.preventDefault()
+      void confirmQuit()
+    }
+  })
+  win.on('closed', () => {
+    mainWindow = null
+  })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) void shell.openExternal(url)
     return { action: 'deny' }
+  })
+  win.webContents.on('will-navigate', (event, url) => {
+    if (new URL(url).origin !== new URL(win.webContents.getURL()).origin) event.preventDefault()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -33,10 +98,32 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.blockhost.app')
-  app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
-  createWindow()
+app.on('before-quit', (event) => {
+  if (shouldConfirmQuit()) {
+    event.preventDefault()
+    void confirmQuit()
+  }
 })
 
 app.on('window-all-closed', () => app.quit())
+
+app.whenReady().then(async () => {
+  electronApp.setAppUserModelId('com.blockhost.app')
+  app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+  try {
+    services = await createServices({
+      dataDir: join(app.getPath('appData'), 'Blockhost'),
+      serversDir: join(app.getPath('documents'), 'MinecraftServers'),
+      send
+    })
+  } catch (err) {
+    dialog.showErrorBox(
+      'Blockhost could not start',
+      err instanceof Error ? err.message : String(err)
+    )
+    app.exit(1)
+    return
+  }
+  registerIpc(services, () => mainWindow)
+  createWindow()
+})
