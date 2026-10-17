@@ -3,6 +3,7 @@ import { ErrorText } from './components/ui'
 import { useServers } from './hooks/useServers'
 import { api } from './lib/api'
 import { NewServerWizard } from './pages/NewServerWizard'
+import { ServerDetail } from './pages/ServerDetail'
 import { ServerList } from './pages/ServerList'
 
 type Route = { name: 'list' } | { name: 'new' } | { name: 'server'; id: string }
@@ -52,7 +53,20 @@ export default function App() {
             onOpen={openServer}
           />
         )}
-        {route.name === 'server' && <p className="p-6 text-zinc-400">{current?.name}</p>}
+        {route.name === 'server' &&
+          (current ? (
+            <ServerDetail
+              server={current}
+              onBack={goList}
+              onChanged={() => void refresh()}
+              onDeleted={() => {
+                void refresh()
+                goList()
+              }}
+            />
+          ) : (
+            <p className="p-6 text-zinc-400">This server no longer exists.</p>
+          ))}
       </main>
     </div>
   )
