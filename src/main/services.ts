@@ -1,10 +1,10 @@
-import extract from 'extract-zip'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { EventChannel, EventPayloads } from '../shared/api'
 import type { ServerType } from '../shared/types'
 import { JsonCache } from './cache'
 import { probeJava } from './java/detect'
+import { extractZip } from './java/extract'
 import { JavaManager } from './java/manager'
 import { JavaResolver } from './java/resolver'
 import { runJava } from './java/run'
@@ -46,7 +46,7 @@ export async function createServices(opts: {
     root: join(dataDir, 'java'),
     http,
     download: downloadFile,
-    extractZip: (zipPath, destDir) => extract(zipPath, { dir: destDir })
+    extractZip
   })
   const java = new JavaResolver({
     manager: javaManager,

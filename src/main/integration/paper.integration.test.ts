@@ -1,10 +1,10 @@
-import extract from 'extract-zip'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { InstallProgress } from '../../shared/types'
 import { JsonCache } from '../cache'
 import { probeJava } from '../java/detect'
+import { extractZip } from '../java/extract'
 import { JavaManager } from '../java/manager'
 import { JavaResolver } from '../java/resolver'
 import { runJava } from '../java/run'
@@ -28,7 +28,7 @@ describe('real Paper server (network, ~150 MB download)', () => {
         root: join(root, 'java'),
         http,
         download: downloadFile,
-        extractZip: (zipPath, destDir) => extract(zipPath, { dir: destDir })
+        extractZip
       }),
       mojangJavaMajor: createMojangJavaLookup(http),
       probe: probeJava
