@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rename as fsRename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { fakeDownload, fakeHttp, tempDir } from '../test-utils'
@@ -67,5 +67,52 @@ describe('JavaManager', () => {
   it('fails clearly when Adoptium has no build', async () => {
     const { manager } = await setup()
     await expect(manager.ensure(8)).rejects.toMatchObject({ code: 'JAVA_UNAVAILABLE' })
+  })
+
+  it('retries the final rename on a Windows file lock (EPERM) and succeeds', async () => {
+    const root = await tempDir()
+    const http = fakeHttp({ [adoptiumAssetsUrl(21)]: [asset21] })
+    const dl = fakeDownload()
+    const extractZip = vi.fn(async (_zip: string, dest: string) => {
+      const bin = join(dest, 'jdk-21.0.12.1+1-jre', 'bin')
+      await mkdir(bin, { recursive: true })
+      await writeFile(join(bin, 'java.exe'), '')
+    })
+    let calls = 0
+    const rename = vi.fn(
+      async (from: Parameters<typeof fsRename>[0], to: Parameters<typeof fsRename>[1]) => {
+        calls++
+        if (calls < 3) {
+          const err = new Error('locked') as NodeJS.ErrnoException
+          err.code = 'EPERM'
+          throw err
+        }
+        return fsRename(from, to)
+      }
+    )
+    const manager = new JavaManager({ root, http, download: dl.fn, extractZip, rename })
+    const exe = await manager.ensure(21)
+    expect(exe).toBe(join(root, 'temurin-21', 'bin', 'java.exe'))
+    expect(await pathExists(exe)).toBe(true)
+    expect(calls).toBe(3)
+  })
+
+  it('rethrows once rename retries are exhausted', async () => {
+    const root = await tempDir()
+    const http = fakeHttp({ [adoptiumAssetsUrl(21)]: [asset21] })
+    const dl = fakeDownload()
+    const extractZip = vi.fn(async (_zip: string, dest: string) => {
+      const bin = join(dest, 'jdk-21.0.12.1+1-jre', 'bin')
+      await mkdir(bin, { recursive: true })
+      await writeFile(join(bin, 'java.exe'), '')
+    })
+    const rename = vi.fn(async () => {
+      const err = new Error('locked') as NodeJS.ErrnoException
+      err.code = 'EPERM'
+      throw err
+    })
+    const manager = new JavaManager({ root, http, download: dl.fn, extractZip, rename })
+    await expect(manager.ensure(21)).rejects.toMatchObject({ code: 'EPERM' })
+    expect(rename).toHaveBeenCalledTimes(5)
   })
 })

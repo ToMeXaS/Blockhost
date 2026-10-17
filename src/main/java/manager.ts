@@ -19,6 +19,35 @@ export interface JavaManagerDeps {
   http: HttpClient
   download: DownloadFn
   extractZip: (zipPath: string, destDir: string) => Promise<void>
+  rename?: typeof rename
+}
+
+const RETRYABLE_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const MAX_RENAME_ATTEMPTS = 5
+
+function isRetryable(err: unknown): boolean {
+  return RETRYABLE_CODES.has((err as NodeJS.ErrnoException).code ?? '')
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Renames `from` to `to`, retrying on Windows file locks (e.g. antivirus or the
+ * indexer scanning freshly-extracted files). There is no in-place fallback for
+ * a directory, so the last error is rethrown once attempts are exhausted.
+ */
+async function renameWithRetry(renameFn: typeof rename, from: string, to: string): Promise<void> {
+  for (let attempt = 1; attempt <= MAX_RENAME_ATTEMPTS; attempt++) {
+    try {
+      await renameFn(from, to)
+      return
+    } catch (err) {
+      if (!isRetryable(err) || attempt === MAX_RENAME_ATTEMPTS) throw err
+      await delay(50 * attempt)
+    }
+  }
 }
 
 /** Installs Eclipse Temurin JREs into `<root>/temurin-<major>/`, one per major, shared by servers. */
@@ -73,7 +102,7 @@ export class JavaManager {
     const [top] = await readdir(staging)
     if (!top) throw new AppError('JAVA_EXTRACT', `The Java ${major} archive was empty`)
     await rm(final, { recursive: true, force: true })
-    await rename(join(staging, top), final)
+    await renameWithRetry(this.deps.rename ?? rename, join(staging, top), final)
     await rm(staging, { recursive: true, force: true })
     await rm(zip, { force: true })
 
