@@ -24,3 +24,8 @@ nsis:
   uninstallDisplayName: Blockhost
   createDesktopShortcut: always
 npmRebuild: false
+publish:
+  provider: github
+  owner: ToMeXaS
+  repo: blockhost
+  releaseType: release

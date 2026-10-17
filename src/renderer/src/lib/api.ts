@@ -9,6 +9,7 @@ import type {
   ServerView,
   SystemInfo,
   UpdateResult,
+  UpdateStatus,
   VersionInfo
 } from '../../../shared/types'
 
@@ -61,6 +62,9 @@ export const api = {
   pickFolder: () => call<string | null>('system:pickFolder'),
   pickJava: () => call<string | null>('system:pickJava'),
   openExternal: (url: string) => call<void>('system:openExternal', url),
+
+  getUpdateStatus: () => call<UpdateStatus>('update:getStatus'),
+  installUpdate: () => call<void>('update:install'),
 
   on: <C extends EventChannel>(channel: C, listener: (payload: EventPayloads[C]) => void) =>
     bridge.on(channel, listener)

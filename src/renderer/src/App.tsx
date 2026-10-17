@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ErrorText } from './components/ui'
+import { UpdateBanner, useUpdateStatus } from './components/UpdateBanner'
 import { useServers } from './hooks/useServers'
 import { api } from './lib/api'
 import { NewServerWizard } from './pages/NewServerWizard'
@@ -12,6 +13,7 @@ export default function App() {
   const { servers, loaded, error, refresh } = useServers()
   const [route, setRoute] = useState<Route>({ name: 'list' })
   const [offline, setOffline] = useState(false)
+  const updateStatus = useUpdateStatus()
 
   useEffect(() => api.on('net:offline', () => setOffline(true)), [])
 
@@ -25,7 +27,11 @@ export default function App() {
         <button type="button" onClick={goList} className="text-lg font-semibold tracking-tight">
           ⛏ Blockhost
         </button>
+        {updateStatus && (
+          <span className="ml-auto text-xs text-zinc-500">v{updateStatus.currentVersion}</span>
+        )}
       </header>
+      <UpdateBanner />
       {offline && (
         <div className="border-b border-amber-900 bg-amber-950/60 px-6 py-2 text-sm text-amber-200">
           You seem to be offline. Version lists may be out of date.

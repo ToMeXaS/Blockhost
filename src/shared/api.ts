@@ -1,4 +1,10 @@
-import type { InstallProgress, Result, ServerLogEvent, ServerStatusEvent } from './types'
+import type {
+  InstallProgress,
+  Result,
+  ServerLogEvent,
+  ServerStatusEvent,
+  UpdateStatus
+} from './types'
 
 export const INVOKE_CHANNELS = [
   'providers:listVersions',
@@ -24,7 +30,9 @@ export const INVOKE_CHANNELS = [
   'system:checkPort',
   'system:pickFolder',
   'system:pickJava',
-  'system:openExternal'
+  'system:openExternal',
+  'update:getStatus',
+  'update:install'
 ] as const
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]
 
@@ -32,7 +40,8 @@ export const EVENT_CHANNELS = [
   'server:status',
   'server:log',
   'install:progress',
-  'net:offline'
+  'net:offline',
+  'update:status'
 ] as const
 export type EventChannel = (typeof EVENT_CHANNELS)[number]
 
@@ -41,6 +50,7 @@ export interface EventPayloads {
   'server:log': ServerLogEvent
   'install:progress': InstallProgress
   'net:offline': { url: string }
+  'update:status': UpdateStatus
 }
 
 /** What the preload script exposes as `window.blockhost`. */

@@ -1,14 +1,17 @@
 import { app, BrowserWindow, dialog, shell, type MessageBoxOptions } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import type { EventChannel, EventPayloads } from '../shared/api'
 import { registerIpc } from './ipc'
 import { createServices, type Services } from './services'
+import { UpdateService } from './updater'
 
 const QUIT_STOP_TIMEOUT_MS = 60_000
 
 let mainWindow: BrowserWindow | null = null
 let services: Services | null = null
+let updates: UpdateService | null = null
 let quitting = false
 let confirming = false
 
@@ -20,12 +23,17 @@ function shouldConfirmQuit(): boolean {
   return !quitting && !!services && services.processes.activeIds().length > 0
 }
 
-async function confirmQuit(): Promise<void> {
+function quitNow(): void {
+  app.quit()
+}
+
+async function confirmQuit(finish: () => void = quitNow): Promise<void> {
   if (confirming || !services) return
   confirming = true
   try {
     const { processes } = services
     const ids = processes.activeIds()
+    const installing = finish !== quitNow
     const options: MessageBoxOptions = {
       type: 'question',
       buttons: ['Stop servers and quit', 'Cancel'],
@@ -36,7 +44,9 @@ async function confirmQuit(): Promise<void> {
         ids.length === 1
           ? 'A server is still running.'
           : `${ids.length} servers are still running.`,
-      detail: 'Blockhost will send "stop" to each server so the worlds are saved, then quit.'
+      detail: installing
+        ? 'Blockhost will send "stop" to each server so the worlds are saved, then restart to install the update.'
+        : 'Blockhost will send "stop" to each server so the worlds are saved, then quit.'
     }
     const { response } = mainWindow
       ? await dialog.showMessageBox(mainWindow, options)
@@ -48,9 +58,19 @@ async function confirmQuit(): Promise<void> {
       ids.map((id) => processes.waitForExit(id, QUIT_STOP_TIMEOUT_MS))
     )
     await Promise.all(ids.filter((_, i) => !stopped[i]).map((id) => processes.kill(id)))
-    app.quit()
+    finish()
   } finally {
     confirming = false
+  }
+}
+
+function requestUpdateInstall(): void {
+  if (!updates) return
+  if (shouldConfirmQuit()) {
+    void confirmQuit(() => updates!.install())
+  } else {
+    quitting = true
+    updates.install()
   }
 }
 
@@ -124,6 +144,16 @@ app.whenReady().then(async () => {
     app.exit(1)
     return
   }
-  registerIpc(services, () => mainWindow)
+  updates = new UpdateService({
+    updater: autoUpdater,
+    enabled: app.isPackaged,
+    currentVersion: app.getVersion(),
+    emit: (status) => send('update:status', status)
+  })
+  registerIpc(services, () => mainWindow, {
+    status: () => updates!.status(),
+    requestInstall: requestUpdateInstall
+  })
   createWindow()
+  updates.start()
 })

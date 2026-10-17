@@ -2,7 +2,7 @@ import { dialog, ipcMain, shell, type BrowserWindow, type OpenDialogOptions } fr
 import { totalmem } from 'node:os'
 import { z } from 'zod'
 import type { InvokeChannel } from '../shared/api'
-import type { Result } from '../shared/types'
+import type { Result, UpdateStatus } from '../shared/types'
 import { AppError, toApiError } from './errors'
 import { lanIps, publicIp } from './net/ip'
 import { isPortFree } from './net/port'
@@ -35,7 +35,11 @@ function handle<A extends unknown[]>(
   })
 }
 
-export function registerIpc(services: Services, getWindow: () => BrowserWindow | null): void {
+export function registerIpc(
+  services: Services,
+  getWindow: () => BrowserWindow | null,
+  updates: { status(): UpdateStatus; requestInstall(): void }
+): void {
   const { servers, installer, providers, javaManager, http, paths } = services
 
   const openDialog = async (options: OpenDialogOptions): Promise<string | null> => {
@@ -112,4 +116,7 @@ export function registerIpc(services: Services, getWindow: () => BrowserWindow |
     return path
   })
   handle('system:openExternal', z.tuple([httpsUrlSchema]), (url) => shell.openExternal(url))
+
+  handle('update:getStatus', z.tuple([]), () => updates.status())
+  handle('update:install', z.tuple([]), () => updates.requestInstall())
 }

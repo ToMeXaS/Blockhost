@@ -113,3 +113,14 @@ export interface ApiError {
 }
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: ApiError }
+
+export type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
+
+export interface UpdateStatus {
+  state: UpdateState
+  currentVersion: string
+  /** Version being downloaded / ready to install. */
+  version?: string
+  percent?: number
+  message?: string
+}
