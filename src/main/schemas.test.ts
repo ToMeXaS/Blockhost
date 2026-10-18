@@ -5,6 +5,7 @@ import {
   httpsUrlSchema,
   javaMajorSchema,
   nameSchema,
+  playerActionSchema,
   propertyEntriesSchema,
   serverPatchSchema
 } from './schemas'
@@ -107,5 +108,50 @@ describe('other schemas', () => {
   it('only allows managed Java majors', () => {
     expect(javaMajorSchema.safeParse(21).success).toBe(true)
     expect(javaMajorSchema.safeParse(11).success).toBe(false)
+  })
+})
+
+describe('playerActionSchema', () => {
+  it('accepts every action shape', () => {
+    const valid = [
+      { type: 'op', name: 'Steve' },
+      { type: 'deop', name: 'Steve' },
+      { type: 'whitelistAdd', name: 'alex_99' },
+      { type: 'whitelistRemove', name: 'alex_99' },
+      { type: 'setWhitelistEnabled', enabled: true },
+      { type: 'ban', name: 'Griefer1', reason: 'Broke the spawn' },
+      { type: 'ban', name: 'Griefer1' },
+      { type: 'pardon', name: 'Griefer1' },
+      { type: 'banIp', ip: '203.0.113.7', reason: 'Alt accounts' },
+      { type: 'banIp', ip: '2001:db8::1' },
+      { type: 'pardonIp', ip: '203.0.113.7' },
+      { type: 'kick', name: 'Steve', reason: 'AFK' },
+      { type: 'op', name: 'Steve', overwriteCorrupt: true }
+    ]
+    for (const action of valid) expect(playerActionSchema.parse(action)).toEqual(action)
+  })
+
+  it('rejects names that are not Minecraft usernames', () => {
+    for (const name of ['ab', 'a'.repeat(17), 'Steve stop', 'Steve\nstop', 'Stéve', '']) {
+      expect(() => playerActionSchema.parse({ type: 'op', name })).toThrow()
+    }
+  })
+
+  it('rejects reasons that could inject a second command', () => {
+    for (const reason of ['bye\nstop', 'bye\rstop', 'x\u0000', 'r'.repeat(201)]) {
+      expect(() => playerActionSchema.parse({ type: 'ban', name: 'Steve', reason })).toThrow()
+    }
+  })
+
+  it('rejects invalid IPs', () => {
+    for (const ip of ['300.1.1.1', 'example.com', '1.2.3.4 stop', '']) {
+      expect(() => playerActionSchema.parse({ type: 'banIp', ip })).toThrow()
+    }
+  })
+
+  it('rejects unknown types and extra fields', () => {
+    expect(() => playerActionSchema.parse({ type: 'nuke', name: 'Steve' })).toThrow()
+    expect(() => playerActionSchema.parse({ type: 'op', name: 'Steve', level: 4 })).toThrow()
+    expect(() => playerActionSchema.parse({ type: 'pardon', name: 'Steve', reason: 'x' })).toThrow()
   })
 })

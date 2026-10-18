@@ -124,3 +124,60 @@ export interface UpdateStatus {
   percent?: number
   message?: string
 }
+
+/** Minecraft Java usernames: 3–16 letters, digits or underscores. */
+export const PLAYER_NAME_PATTERN = /^[A-Za-z0-9_]{3,16}$/
+
+export interface PlayerRef {
+  uuid: string
+  name: string
+}
+
+export interface OpEntry extends PlayerRef {
+  level: number
+}
+
+export interface PlayerBan extends PlayerRef {
+  reason: string
+  created: string
+}
+
+export interface IpBan {
+  ip: string
+  reason: string
+  created: string
+}
+
+export type PlayerListName = 'ops' | 'whitelist' | 'bannedPlayers' | 'bannedIps'
+
+export interface PlayerLists {
+  /** Empty unless the server is running. */
+  online: string[]
+  ops: OpEntry[]
+  whitelist: PlayerRef[]
+  whitelistEnabled: boolean
+  bannedPlayers: PlayerBan[]
+  bannedIps: IpBan[]
+  /** Lists whose file could not be parsed (shown as empty). */
+  corrupt: PlayerListName[]
+}
+
+export type PlayerAction = {
+  /** Stopped servers only: replace a list file that could not be parsed. */
+  overwriteCorrupt?: boolean
+} & (
+  | { type: 'op'; name: string }
+  | { type: 'deop'; name: string }
+  | { type: 'whitelistAdd'; name: string }
+  | { type: 'whitelistRemove'; name: string }
+  | { type: 'setWhitelistEnabled'; enabled: boolean }
+  | { type: 'ban'; name: string; reason?: string }
+  | { type: 'pardon'; name: string }
+  | { type: 'banIp'; ip: string; reason?: string }
+  | { type: 'pardonIp'; ip: string }
+  | { type: 'kick'; name: string; reason?: string }
+)
+
+export interface PlayersChangedEvent {
+  serverId: string
+}

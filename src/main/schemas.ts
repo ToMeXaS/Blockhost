@@ -1,6 +1,7 @@
 import { isAbsolute } from 'node:path'
+import { isIP } from 'node:net'
 import { z } from 'zod'
-import { SERVER_TYPES } from '../shared/types'
+import { PLAYER_NAME_PATTERN, SERVER_TYPES } from '../shared/types'
 import { JAVA_MAJORS } from './java/requirements'
 
 export const idSchema = z.uuid()
@@ -88,3 +89,40 @@ export const javaMajorSchema = z
   .number()
   .int()
   .refine((major) => (JAVA_MAJORS as readonly number[]).includes(major), 'Unsupported Java version')
+
+const playerNameSchema = z
+  .string()
+  .regex(PLAYER_NAME_PATTERN, 'Player names are 3–16 letters, numbers or underscores')
+const ipSchema = z
+  .string()
+  .max(45)
+  .refine((ip) => isIP(ip) !== 0, 'Not a valid IP address')
+const reasonSchema = z
+  .string()
+  .max(200)
+  .regex(/^\P{Cc}*$/u, 'The reason must be a single line')
+  .optional()
+const overwriteCorrupt = z.boolean().optional()
+
+const nameAction = <T extends string>(type: T) =>
+  z.strictObject({ type: z.literal(type), name: playerNameSchema, overwriteCorrupt })
+const nameReasonAction = <T extends string>(type: T) =>
+  z.strictObject({
+    type: z.literal(type),
+    name: playerNameSchema,
+    reason: reasonSchema,
+    overwriteCorrupt
+  })
+
+export const playerActionSchema = z.discriminatedUnion('type', [
+  nameAction('op'),
+  nameAction('deop'),
+  nameAction('whitelistAdd'),
+  nameAction('whitelistRemove'),
+  nameAction('pardon'),
+  nameReasonAction('ban'),
+  nameReasonAction('kick'),
+  z.strictObject({ type: z.literal('banIp'), ip: ipSchema, reason: reasonSchema, overwriteCorrupt }),
+  z.strictObject({ type: z.literal('pardonIp'), ip: ipSchema, overwriteCorrupt }),
+  z.strictObject({ type: z.literal('setWhitelistEnabled'), enabled: z.boolean(), overwriteCorrupt })
+])
