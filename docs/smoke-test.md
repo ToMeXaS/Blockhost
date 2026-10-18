@@ -27,4 +27,12 @@ Run on a clean Windows 10/11 machine (no Java installed) using `dist/Blockhost-<
 - [ ] Fabric server: installing Chunky (a server-side mod that requires Fabric API) also installs Fabric API; the note names both; after a restart the server starts with both
 - [ ] A jar copied into mods/ by hand shows as "from Modrinth" once identified, or "added manually"
 - [ ] Remove is disabled while the server runs; after stopping, removing Fabric API warns that Chunky needs it
+- [ ] Restyle: Overview, Console, Players, Properties, Connect and Settings render for a Vanilla, a Paper and a Fabric server; Mods shows for Fabric, Plugins for Paper, neither for Vanilla
+- [ ] Restyle: the sidebar switcher lists every server, switches to another server, and "+ New server" / "All servers" work; going back to a server reopens the section it was on
+- [ ] Restyle: the Players badge in the sidebar shows the online count while someone is connected
+- [ ] Restyle: Console filters (All / Warnings / Chat) work, ↑/↓ recall earlier commands, and "Jump to latest" appears after scrolling up
+- [ ] Restyle: Overview uptime counts up after starting a server; the address copy button copies the playit address when shared and `localhost:<port>` otherwise
+- [ ] Restyle: with the network disconnected, the Geist and JetBrains Mono fonts still render (no fallback fonts)
+- [ ] Restyle: at the 860px minimum width the layout has no horizontal scroll and the sidebar is an icon rail; at 1000px and wider it shows labels
+- [ ] Restyle: Force kill appears in the "⋯" menu only after the server has been stopping for 30 seconds
 - [ ] Uninstall via Windows Settings removes the app (server folders remain)
