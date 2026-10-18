@@ -23,6 +23,14 @@ describe('PlayerTracker', () => {
     expect(onChange).toHaveBeenCalledWith(ID)
   })
 
+  it('tracks a renamed player join line under their current name', () => {
+    const { tracker } = setup()
+    tracker.handleLines(ID, [
+      '[14:03:00] [Server thread/INFO]: Steve (formerly known as Bob) joined the game'
+    ])
+    expect(tracker.online(ID)).toEqual(['Steve'])
+  })
+
   it('ignores chat that imitates a join line', () => {
     const { tracker, onChange } = setup()
     tracker.handleLines(ID, [

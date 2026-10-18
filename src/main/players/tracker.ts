@@ -1,7 +1,7 @@
 // One or more "[...]" logger groups, then ": " — chat lines continue with "<name>".
 const PREFIX = String.raw`^(?:\[[^\]]*\]\s*)+:\s`
 const NAME = '[A-Za-z0-9_]{3,16}'
-const JOIN = new RegExp(`${PREFIX}(${NAME}) joined the game$`)
+const JOIN = new RegExp(`${PREFIX}(${NAME})(?: \\(formerly known as ${NAME}\\))? joined the game$`)
 const LEAVE = new RegExp(`${PREFIX}(${NAME}) left the game$`)
 const LIST = new RegExp(
   `${PREFIX}There are (\\d+) (?:of a max of|out of maximum) \\d+ players online[:.]?\\s*(.*)$`
