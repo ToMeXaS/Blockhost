@@ -196,4 +196,60 @@ describe('AgentProcess', () => {
       message: 'Checksum mismatch for playitd-1.0.12.exe'
     })
   })
+
+  it('stays stopped when stop() races a failing exe()', async () => {
+    const spawn = vi.fn()
+    const kill = vi.fn(async () => {})
+    const events: AgentEvent[] = []
+    let rejectExe: (err: Error) => void = () => {}
+    const agent = new AgentProcess({
+      spawn,
+      kill,
+      exe: () => new Promise((_resolve, reject) => (rejectExe = reject)),
+      secretPath: 'C:/data/playit/playit.toml',
+      onEvent: (e) => events.push(e)
+    })
+    const started = agent.start()
+    await flush()
+    agent.stop()
+    rejectExe(new Error('network error'))
+    await started
+    await flush()
+    expect(spawn).not.toHaveBeenCalled()
+    expect(events.at(-1)).toEqual({ state: 'stopped' })
+  })
+
+  it('stays stopped when stop() races a succeeding exe()', async () => {
+    const spawn = vi.fn()
+    const kill = vi.fn(async () => {})
+    const events: AgentEvent[] = []
+    let resolveExe: (exe: string) => void = () => {}
+    const agent = new AgentProcess({
+      spawn,
+      kill,
+      exe: () => new Promise((resolve) => (resolveExe = resolve)),
+      secretPath: 'C:/data/playit/playit.toml',
+      onEvent: (e) => events.push(e)
+    })
+    const started = agent.start()
+    await flush()
+    agent.stop()
+    resolveExe('C:/data/playit/playitd-1.0.12.exe')
+    await started
+    await flush()
+    expect(spawn).not.toHaveBeenCalled()
+    expect(events.at(-1)).toEqual({ state: 'stopped' })
+  })
+
+  it('stays stopped when stop() races a scheduled restart', async () => {
+    vi.useFakeTimers()
+    const { agent, spawn, children, events } = setup()
+    await agent.start()
+    children.at(-1)!.exit(1)
+    await vi.advanceTimersByTimeAsync(1000)
+    agent.stop()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(events.at(-1)).toEqual({ state: 'stopped' })
+  })
 })

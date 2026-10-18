@@ -104,6 +104,10 @@ export class AgentProcess {
     try {
       exe = await this.deps.exe()
     } catch (err) {
+      if (this.stopRequested) {
+        if (this.current !== 'stopped') this.emit({ state: 'stopped' })
+        return
+      }
       this.emit({ state: 'error', message: (err as Error).message })
       return
     }
