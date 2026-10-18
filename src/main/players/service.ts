@@ -135,6 +135,11 @@ export class PlayerService {
     }
     if (status === 'running') {
       this.deps.processes.sendCommand(serverId, toCommand(action))
+      // The server rewrites the list files shortly after the command; the fs
+      // watcher usually catches that, but it can miss events or be absent
+      // (e.g. the folder was briefly unreadable), so also schedule our own
+      // fallback resync.
+      this.scheduleChanged(serverId)
       return this.getPlayers(serverId)
     }
     if (action.type === 'kick') {

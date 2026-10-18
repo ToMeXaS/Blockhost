@@ -65,6 +65,17 @@ describe('toCommand', () => {
 })
 
 describe('PlayerService while running', () => {
+  it('schedules a resync emit 500ms after a running-path action even without a watcher event', async () => {
+    vi.useFakeTimers()
+    const { service, emit } = await setup('running')
+    await service.action(ID, { type: 'op', name: 'Steve' })
+    expect(emit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(499)
+    expect(emit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(emit).toHaveBeenCalledWith({ serverId: ID })
+  })
+
   it('sends the command and returns the current snapshot', async () => {
     const { service, processes, readJson, dir } = await setup('running')
     await writeFile(join(dir, 'ops.json'), '[]')
