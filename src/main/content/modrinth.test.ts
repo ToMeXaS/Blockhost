@@ -125,7 +125,13 @@ describe('createModrinthClient', () => {
     await client.latest(['h1'], ['fabric'], '1.21.4')
     expect(seen[1]).toMatchObject({
       method: 'POST',
-      body: { hashes: ['h1'], algorithm: 'sha1', loaders: ['fabric'], game_versions: ['1.21.4'] }
+      body: {
+        hashes: ['h1'],
+        algorithm: 'sha1',
+        loaders: ['fabric'],
+        game_versions: ['1.21.4'],
+        version_types: ['release']
+      }
     })
     expect(new URL(seen[1].url).pathname).toBe('/v2/version_files/update')
   })

@@ -174,7 +174,9 @@ export function createModrinthClient(opts: ModrinthClientOptions): ModrinthClien
             hashes: sha1s,
             algorithm: 'sha1',
             loaders,
-            game_versions: [mcVersion]
+            game_versions: [mcVersion],
+            // Only offer stable releases as updates (Modrinth honours this filter).
+            version_types: ['release']
           })
         : {}
   }
