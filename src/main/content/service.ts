@@ -69,24 +69,23 @@ export class ContentService {
     this.deps = deps
   }
 
-  search(serverId: string, query: string, offset: number): Promise<ContentSearchResult> {
-    return this.serial(serverId, async () => {
-      const { rec, target } = this.ctx(serverId)
-      const installed = new Set((await readManifest(rec.dir)).entries.map((e) => e.projectId))
-      const r = await this.deps.client.search(target, rec.mcVersion, query, offset)
-      return {
-        total: r.total,
-        hits: r.hits.map((h) => ({
-          projectId: h.project_id,
-          slug: h.slug,
-          title: h.title,
-          description: h.description,
-          iconUrl: h.icon_url,
-          downloads: h.downloads,
-          installed: installed.has(h.project_id)
-        }))
-      }
-    })
+  /** Not queued: it only reads the manifest, so it must not wait behind a slow install. */
+  async search(serverId: string, query: string, offset: number): Promise<ContentSearchResult> {
+    const { rec, target } = this.ctx(serverId)
+    const installed = new Set((await readManifest(rec.dir)).entries.map((e) => e.projectId))
+    const r = await this.deps.client.search(target, rec.mcVersion, query, offset)
+    return {
+      total: r.total,
+      hits: r.hits.map((h) => ({
+        projectId: h.project_id,
+        slug: h.slug,
+        title: h.title,
+        description: h.description,
+        iconUrl: h.icon_url,
+        downloads: h.downloads,
+        installed: installed.has(h.project_id)
+      }))
+    }
   }
 
   listInstalled(serverId: string): Promise<InstalledContentList> {

@@ -441,7 +441,7 @@ describe('ContentService', () => {
 })
 
 describe('ContentService update safety (fix round 1)', () => {
-  it('keeps the old jar and manifest when a same-name update\'s dependency download fails', async () => {
+  it("keeps the old jar and manifest when a same-name update's dependency download fails", async () => {
     const { service, mods, dir, client, versions, hashes, download } = await setup()
     await service.install(ID, 'sodium')
     hashes['sodium-1.jar'] = 'sha1-s1'
@@ -475,9 +475,10 @@ describe('ContentService update safety (fix round 1)', () => {
 
     await expect(service.update(ID, 'sodium-1.jar')).rejects.toMatchObject({ code: 'NETWORK' })
     expect(await readFile(join(mods, 'sodium-1.jar'), 'utf8')).toBe(before)
-    expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject(
-      { fileName: 'sodium-1.jar', versionId: 's1' }
-    )
+    expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject({
+      fileName: 'sodium-1.jar',
+      versionId: 's1'
+    })
     expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-1.jar'])
   })
 
@@ -571,9 +572,10 @@ describe('ContentService update safety (fix round 1)', () => {
     })
     expect(await readFile(join(mods, 'sodium-1.jar'), 'utf8')).toBe(before)
     expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-1.jar'])
-    expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject(
-      { fileName: 'sodium-1.jar', versionId: 's1' }
-    )
+    expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject({
+      fileName: 'sodium-1.jar',
+      versionId: 's1'
+    })
   })
 })
 
@@ -602,5 +604,25 @@ describe('ContentService final review fixes', () => {
       'Sodium',
       'Lithium'
     ])
+  })
+
+  it('does not make a search wait for a pending install', async () => {
+    const { service, download } = await setup()
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    download.mockImplementation(async (o: DownloadOptions) => {
+      await gate
+      await mkdir(join(o.dest, '..'), { recursive: true })
+      await writeFile(o.dest, 'jar')
+    })
+    const install = service.install(ID, 'sodium')
+    await vi.waitFor(() => expect(download).toHaveBeenCalled())
+    const r = await Promise.race([
+      service.search(ID, 'sod', 0).then(() => 'searched'),
+      new Promise((r) => setTimeout(() => r('blocked'), 500))
+    ])
+    expect(r).toBe('searched')
+    release()
+    await install
   })
 })
