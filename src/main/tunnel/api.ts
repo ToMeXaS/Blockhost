@@ -145,6 +145,24 @@ export function createPlayitApi(
         typeof envelope.data === 'string' ? envelope.data : JSON.stringify(envelope.data)
       return { ok: false, reason }
     }
+    if (envelope.status !== 'error') {
+      if (res.status === 401) {
+        throw new AppError(
+          'PLAYIT_UNAUTHORIZED',
+          'playit.gg no longer accepts the saved key. Link your playit.gg account again.',
+          { status: 401 }
+        )
+      }
+      if (res.status === 403) {
+        throw new AppError('PLAYIT_FORBIDDEN', 'playit.gg did not allow this request (HTTP 403)', {
+          status: 403
+        })
+      }
+      throw new AppError(
+        'PLAYIT_API',
+        `playit.gg returned an unexpected response (HTTP ${res.status})`
+      )
+    }
     const type = envelope.data?.type ?? 'unknown'
     const raw = envelope.data?.message
     const message = typeof raw === 'string' ? raw : JSON.stringify(raw ?? null)

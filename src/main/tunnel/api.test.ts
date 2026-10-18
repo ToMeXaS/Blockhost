@@ -150,11 +150,27 @@ describe('rundata', () => {
     })
   })
 
-  it('prefers well-formed envelope error codes over HTTP status codes', async () => {
-    const { api } = fakeFetch({
-      status: 'error',
-      data: { type: 'auth', message: 'ScopeNotAllowed' }
+  it('maps 401/403 with unparsable or invalid JSON bodies to auth errors', async () => {
+    const api401empty = createPlayitApi(
+      (async () => new Response('{}', { status: 401 })) as unknown as typeof fetch,
+      'https://api.test'
+    )
+    await expect(api401empty.rundata('s')).rejects.toMatchObject({
+      code: 'PLAYIT_UNAUTHORIZED'
     })
+
+    const api200junk = createPlayitApi(
+      (async () => new Response('[]', { status: 200 })) as unknown as typeof fetch,
+      'https://api.test'
+    )
+    await expect(api200junk.rundata('s')).rejects.toMatchObject({
+      code: 'PLAYIT_API',
+      message: expect.stringContaining('HTTP 200')
+    })
+  })
+
+  it('prefers well-formed envelope error codes over HTTP status codes', async () => {
+    const { api } = fakeFetch({ status: 401, body: { status: 'error', data: { type: 'auth', message: 'ScopeNotAllowed' } } })
     await expect(api.rundata('s')).rejects.toMatchObject({ code: 'PLAYIT_FORBIDDEN' })
   })
 })
