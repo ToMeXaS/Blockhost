@@ -119,6 +119,8 @@ export class PlayitAccount {
         if (!KEY_PATTERN.test(trimmed)) {
           throw new AppError('PLAYIT_API', 'playit.gg returned a key Blockhost cannot use.')
         }
+        // An unlink or cancel during the exchange must not be undone by this write.
+        if (signal.aborted) throw cancelled()
         await writeFileAtomic(this.deps.file, secretFileContent(trimmed))
         return
       }

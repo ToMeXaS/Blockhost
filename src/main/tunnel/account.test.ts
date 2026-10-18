@@ -116,6 +116,21 @@ describe('PlayitAccount', () => {
     await expect(readFile(file, 'utf8')).rejects.toThrow()
   })
 
+  it('does not save the key when unlinked while the exchange is in flight', async () => {
+    const { account, api, file } = await setup({ setup: ['UserAccepted'] })
+    let resolveExchange: (key: string | null) => void = () => {}
+    api.claimExchange.mockImplementationOnce(
+      () => new Promise<string | null>((resolve) => (resolveExchange = resolve))
+    )
+    const linking = account.link()
+    await vi.waitFor(() => expect(api.claimExchange).toHaveBeenCalled())
+    await account.unlink()
+    resolveExchange('secret123')
+    await expect(linking).rejects.toMatchObject({ code: 'CANCELLED' })
+    expect(await account.isLinked()).toBe(false)
+    await expect(readFile(file, 'utf8')).rejects.toThrow()
+  })
+
   it('reads a secret file written by hand', async () => {
     const { account, file } = await setup()
     await account.link()
