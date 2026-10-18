@@ -21,5 +21,6 @@ Run on a clean Windows 10/11 machine (no Java installed) using `dist/Blockhost-<
 - [ ] Connect tab: "Link playit.gg account" opens playit.gg in the browser; accepting there shows the sharing switch in Blockhost
 - [ ] Sharing a running Paper server downloads the agent once, shows "Connecting…" then an address; a client on a different network (e.g. phone hotspot) joins with that address
 - [ ] Stopping the server greys the address; starting it again shows the same address
+- [ ] A server that is not shared is not reachable from outside, even when it uses the same port as a stopped shared server
 - [ ] Unlink removes the switch; no playitd.exe remains in Task Manager after the app quits
 - [ ] Uninstall via Windows Settings removes the app (server folders remain)
