@@ -10,6 +10,8 @@ import { JavaResolver } from '../java/resolver'
 import { runJava } from '../java/run'
 import { downloadFile } from '../net/download'
 import { createHttpClient } from '../net/http'
+import { defaultWatch, PlayerService } from '../players/service'
+import { lookupPlayer } from '../players/uuid'
 import { createProviders } from '../providers'
 import { createMojangJavaLookup } from '../providers/vanilla'
 import { readPropertiesFile, updateProperties } from '../servers/properties'
@@ -71,6 +73,22 @@ describe('real Paper server (network, ~150 MB download)', () => {
     const motd = 'IT edited while running'
     await expect(updateProperties(dir, { motd })).resolves.toBeUndefined()
     expect((await readPropertiesFile(dir)).find((e) => e.key === 'motd')?.value).toBe(motd)
+
+    const players = new PlayerService({
+      store,
+      processes,
+      lookup: (name, onlineMode) => lookupPlayer(http, name, onlineMode),
+      watch: defaultWatch,
+      emit: () => {}
+    })
+    await players.action(rec.id, { type: 'op', name: 'Notch' })
+    await vi.waitFor(
+      async () =>
+        expect((await players.getPlayers(rec.id)).ops.map((o) => o.name.toLowerCase())).toContain(
+          'notch'
+        ),
+      { timeout: 30_000, interval: 500 }
+    )
 
     processes.stop(rec.id)
     expect(await processes.waitForExit(rec.id, 120_000)).toBe(true)
