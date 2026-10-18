@@ -284,8 +284,7 @@ export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props)
               </Field>
             )}
 
-            <div className="flex justify-between">
-              <Button onClick={onCancel}>Cancel</Button>
+            <div className="flex justify-end">
               <Button variant="primary" disabled={!version} onClick={() => setStep(2)}>
                 Next
               </Button>
