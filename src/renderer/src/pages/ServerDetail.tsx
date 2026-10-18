@@ -186,7 +186,7 @@ export function ServerDetail({ server, onBack, onChanged, onDeleted }: Props) {
             {tab === 'settings' && (
               <SettingsTab server={server} onChanged={onChanged} onDeleted={onDeleted} />
             )}
-            {tab === 'connect' && <ConnectTab server={server} />}
+            {tab === 'connect' && <ConnectTab server={server} onChanged={onChanged} />}
           </div>
         </>
       )}
