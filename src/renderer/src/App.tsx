@@ -75,6 +75,7 @@ export default function App() {
       {route.name === 'server' &&
         (current ? (
           <ServerPage
+            key={current.id}
             server={current}
             section={route.section}
             online={online}
