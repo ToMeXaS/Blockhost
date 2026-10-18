@@ -5,13 +5,15 @@ import { Button, ErrorText, StatusBadge, TypeBadge } from '../components/ui'
 import { api, ApiCallError, errorMessage } from '../lib/api'
 import { ConnectTab } from './tabs/ConnectTab'
 import { ConsoleTab } from './tabs/ConsoleTab'
+import { PlayersTab } from './tabs/PlayersTab'
 import { PropertiesTab } from './tabs/PropertiesTab'
 import { SettingsTab } from './tabs/SettingsTab'
 
-type Tab = 'console' | 'properties' | 'settings' | 'connect'
+type Tab = 'console' | 'players' | 'properties' | 'settings' | 'connect'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'console', label: 'Console' },
+  { id: 'players', label: 'Players' },
   { id: 'properties', label: 'Properties' },
   { id: 'settings', label: 'Settings' },
   { id: 'connect', label: 'Connect' }
@@ -179,6 +181,7 @@ export function ServerDetail({ server, onBack, onChanged, onDeleted }: Props) {
             className={`min-h-0 flex-1 p-6 ${tab === 'console' ? 'overflow-hidden' : 'overflow-auto'}`}
           >
             {tab === 'console' && <ConsoleTab server={server} />}
+            {tab === 'players' && <PlayersTab server={server} />}
             {tab === 'properties' && <PropertiesTab server={server} onChanged={onChanged} />}
             {tab === 'settings' && (
               <SettingsTab server={server} onChanged={onChanged} onDeleted={onDeleted} />
