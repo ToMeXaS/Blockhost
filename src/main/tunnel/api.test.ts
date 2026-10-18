@@ -129,6 +129,34 @@ describe('rundata', () => {
       message: expect.stringContaining('HTTP 502')
     })
   })
+
+  it('maps bare 401/403 responses to auth errors', async () => {
+    const api401 = createPlayitApi(
+      (async () => new Response('<html>', { status: 401 })) as unknown as typeof fetch,
+      'https://api.test'
+    )
+    await expect(api401.rundata('s')).rejects.toMatchObject({
+      code: 'PLAYIT_UNAUTHORIZED',
+      message: expect.stringContaining('no longer accepts')
+    })
+
+    const api403 = createPlayitApi(
+      (async () => new Response('<html>', { status: 403 })) as unknown as typeof fetch,
+      'https://api.test'
+    )
+    await expect(api403.rundata('s')).rejects.toMatchObject({
+      code: 'PLAYIT_FORBIDDEN',
+      message: expect.stringContaining('HTTP 403')
+    })
+  })
+
+  it('prefers well-formed envelope error codes over HTTP status codes', async () => {
+    const { api } = fakeFetch({
+      status: 'error',
+      data: { type: 'auth', message: 'ScopeNotAllowed' }
+    })
+    await expect(api.rundata('s')).rejects.toMatchObject({ code: 'PLAYIT_FORBIDDEN' })
+  })
 })
 
 describe('tunnels', () => {
