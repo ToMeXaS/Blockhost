@@ -19,7 +19,7 @@ import { pathExists } from '../util/fs'
 import { contentTarget, type ContentTarget } from './loaders'
 import { readManifest, writeManifest, type Manifest, type ManifestEntry } from './manifest'
 import type { ModrinthClient } from './modrinth'
-import { planInstall, type PlanItem } from './resolver'
+import { planInstall, type Plan } from './resolver'
 
 const RESERVED_DEVICE_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i
 const FORBIDDEN_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
@@ -206,13 +206,13 @@ export class ContentService {
         entries: manifest.entries.filter((e) => e.projectId !== entry.projectId)
       }
       const plan = await this.plan(c, forPlan, entry.projectId, latest.id)
-      if (plan[0]?.projectId !== entry.projectId) {
+      if (plan.items[0]?.projectId !== entry.projectId) {
         throw new AppError(
           'CONTENT_NO_COMPATIBLE_VERSION',
           `No compatible update was found for ${entry.title}.`
         )
       }
-      plan[0].dependencyOf = entry.dependencyOf
+      plan.items[0].dependencyOf = entry.dependencyOf
 
       // Only drop the entry being replaced, so a duplicate entry for the same project
       // (e.g. a second jar for the same mod) is left alone.
@@ -268,7 +268,7 @@ export class ContentService {
     manifest: Manifest,
     projectIdOrSlug: string,
     versionId?: string
-  ): Promise<PlanItem[]> {
+  ): Promise<Plan> {
     return planInstall(
       projectIdOrSlug,
       {
@@ -295,7 +295,7 @@ export class ContentService {
   private async apply(
     c: Ctx,
     manifest: Manifest,
-    plan: PlanItem[],
+    { items: plan, links }: Plan,
     replacing: ManifestEntry | null
   ): Promise<boolean> {
     if (plan.length === 0) return false
@@ -343,7 +343,16 @@ export class ContentService {
       await rm(join(c.folder, replacing.fileName), { force: true })
     }
 
-    const entries = manifest.entries.filter((e) => !names.includes(e.fileName))
+    const entries = manifest.entries
+      .filter((e) => !names.includes(e.fileName))
+      .map((e) => {
+        const parents = links
+          .filter((l) => l.projectId === e.projectId && !e.dependencyOf.includes(l.parentId))
+          .map((l) => l.parentId)
+        return parents.length
+          ? { ...e, dependencyOf: [...new Set([...e.dependencyOf, ...parents])] }
+          : e
+      })
     plan.forEach((item, i) =>
       entries.push({
         fileName: names[i],
@@ -359,9 +368,9 @@ export class ContentService {
     return written.length > 0
   }
 
-  private result(c: Ctx, plan: PlanItem[], wrote: boolean): ContentInstallResult {
+  private result(c: Ctx, plan: Plan, wrote: boolean): ContentInstallResult {
     return {
-      installed: plan.map((item, i) => ({
+      installed: plan.items.map((item, i) => ({
         title: item.title,
         versionNumber: item.versionNumber,
         asDependency: i > 0

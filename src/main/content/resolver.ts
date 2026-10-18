@@ -18,6 +18,17 @@ export interface PlanItem {
   dependencyOf: string[]
 }
 
+/** An already-installed project that a planned item requires (so it was not planned again). */
+export interface PlanLink {
+  projectId: string
+  parentId: string
+}
+
+export interface Plan {
+  items: PlanItem[]
+  links: PlanLink[]
+}
+
 export interface ResolveContext {
   client: Pick<ModrinthClient, 'project' | 'version' | 'versions'>
   loaders: string[]
@@ -54,15 +65,23 @@ export async function planInstall(
   projectIdOrSlug: string,
   ctx: ResolveContext,
   versionId?: string
-): Promise<PlanItem[]> {
+): Promise<Plan> {
   const items: PlanItem[] = []
+  const links: PlanLink[] = []
   const byProject = new Map<string, PlanItem>()
 
-  async function compatibleVersion(id: string | null): Promise<ModrinthVersion | null> {
+  async function compatibleVersion(
+    id: string | null,
+    projectId: string
+  ): Promise<ModrinthVersion | null> {
     if (!id) return null
     try {
       const v = await ctx.client.version(id)
-      return isCompatible(v, ctx.loaders, ctx.mcVersion) && v.files.length > 0 ? v : null
+      return v.project_id === projectId &&
+        isCompatible(v, ctx.loaders, ctx.mcVersion) &&
+        v.files.length > 0
+        ? v
+        : null
     } catch (err) {
       if (isNotFound(err)) return null
       throw err
@@ -86,17 +105,23 @@ export async function planInstall(
       }
       throw err
     }
-    if (ctx.installedProjectIds.has(project.id)) return
+    if (ctx.installedProjectIds.has(project.id)) {
+      if (parent && parent.projectId !== project.id) {
+        links.push({ projectId: project.id, parentId: parent.projectId })
+      }
+      return
+    }
     const existing = byProject.get(project.id)
     if (existing) {
-      if (parent && !existing.dependencyOf.includes(parent.projectId) && existing !== parent) {
+      // `existing === parent` happens when a project lists itself as a dependency.
+      if (parent && existing !== parent && !existing.dependencyOf.includes(parent.projectId)) {
         existing.dependencyOf.push(parent.projectId)
       }
       return
     }
 
     const version =
-      (await compatibleVersion(pinnedVersion)) ??
+      (await compatibleVersion(pinnedVersion, project.id)) ??
       pickVersion(await ctx.client.versions(project.id, ctx.loaders, ctx.mcVersion))
     if (!version) {
       if (parent) {
@@ -164,5 +189,5 @@ export async function planInstall(
   }
 
   await visit(projectIdOrSlug, versionId ?? null, null)
-  return items
+  return { items, links }
 }

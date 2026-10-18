@@ -576,3 +576,31 @@ describe('ContentService update safety (fix round 1)', () => {
     )
   })
 })
+
+describe('ContentService final review fixes', () => {
+  it('records every installed mod that needs a shared dependency', async () => {
+    const { service, client, versions, hashes } = await setup()
+    const LITH: ModrinthProject = {
+      id: 'LITHLITH',
+      slug: 'lithium',
+      title: 'Lithium',
+      icon_url: null,
+      server_side: 'optional'
+    }
+    versions.push(ver('l1', LITH.id, 'lithium-1.jar', [API.id]))
+    const original = client.project.getMockImplementation()!
+    client.project.mockImplementation(async (id: string) =>
+      id === LITH.id || id === 'lithium' ? LITH : original(id)
+    )
+    await service.install(ID, 'sodium')
+    await service.install(ID, 'lithium')
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    hashes['fabric-api-1.jar'] = 'sha1-a1'
+    hashes['lithium-1.jar'] = 'sha1-l1'
+    const list = await service.listInstalled(ID)
+    expect(list.items.find((i) => i.fileName === 'fabric-api-1.jar')?.neededBy).toEqual([
+      'Sodium',
+      'Lithium'
+    ])
+  })
+})

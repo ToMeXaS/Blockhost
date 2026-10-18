@@ -114,7 +114,7 @@ describe('planInstall', () => {
         version('l1', LIB.id)
       ]
     )
-    const plan = await planInstall('sodium', c)
+    const plan = (await planInstall('sodium', c)).items
     expect(plan.map((i) => [i.projectId, i.versionId, i.dependencyOf])).toEqual([
       [SODIUM.id, 's1', []],
       [API.id, 'a1', [SODIUM.id]],
@@ -141,7 +141,7 @@ describe('planInstall', () => {
         version('a1', API.id, { deps: [req(SODIUM.id)] })
       ]
     )
-    const plan = await planInstall(SODIUM.id, c)
+    const plan = (await planInstall(SODIUM.id, c)).items
     expect(plan.map((i) => i.projectId)).toEqual([SODIUM.id, API.id])
   })
 
@@ -151,9 +151,9 @@ describe('planInstall', () => {
       [version('s1', SODIUM.id, { deps: [req(API.id)] }), version('a1', API.id)],
       [API.id]
     )
-    expect((await planInstall('sodium', c)).map((i) => i.projectId)).toEqual([SODIUM.id])
+    expect((await planInstall('sodium', c)).items.map((i) => i.projectId)).toEqual([SODIUM.id])
     const installedRoot = ctx([SODIUM], [version('s1', SODIUM.id)], [SODIUM.id])
-    expect(await planInstall('sodium', installedRoot)).toEqual([])
+    expect(await planInstall('sodium', installedRoot)).toEqual({ items: [], links: [] })
   })
 
   it('uses a pinned dependency version when compatible, else the best compatible one', async () => {
@@ -165,7 +165,7 @@ describe('planInstall', () => {
         version('a-new', API.id)
       ]
     )
-    expect((await planInstall('sodium', pinnedOk))[1].versionId).toBe('a-old')
+    expect((await planInstall('sodium', pinnedOk)).items[1].versionId).toBe('a-old')
 
     const pinnedBad = ctx(
       [SODIUM, API],
@@ -175,13 +175,13 @@ describe('planInstall', () => {
         version('a-new', API.id)
       ]
     )
-    expect((await planInstall('sodium', pinnedBad))[1].versionId).toBe('a-new')
+    expect((await planInstall('sodium', pinnedBad)).items[1].versionId).toBe('a-new')
 
     const byVersionOnly = ctx(
       [SODIUM, API],
       [version('s1', SODIUM.id, { deps: [req(null, 'a1')] }), version('a1', API.id)]
     )
-    expect((await planInstall('sodium', byVersionOnly))[1].projectId).toBe(API.id)
+    expect((await planInstall('sodium', byVersionOnly)).items[1].projectId).toBe(API.id)
   })
 
   it('reports a project with no compatible version', async () => {
@@ -214,7 +214,7 @@ describe('planInstall', () => {
 
   it('prefers the requested version for the root (updates)', async () => {
     const c = ctx([SODIUM], [version('s2', SODIUM.id), version('s1', SODIUM.id)])
-    expect((await planInstall('sodium', c, 's1'))[0].versionId).toBe('s1')
+    expect((await planInstall('sodium', c, 's1')).items[0].versionId).toBe('s1')
   })
 
   it('propagates a non-404 error from a pinned dependency version lookup', async () => {
@@ -255,5 +255,43 @@ describe('planInstall', () => {
       code: 'CONTENT_DEPENDENCY_UNAVAILABLE',
       message: 'Sodium needs a dependency that is no longer on Modrinth.'
     })
+  })
+
+  it('reports links to installed dependencies it skipped', async () => {
+    const c = ctx(
+      [SODIUM, API, LIB],
+      [
+        version('s1', SODIUM.id, { deps: [req(API.id), req(LIB.id)] }),
+        version('l1', LIB.id, { deps: [req(API.id)] })
+      ],
+      [API.id]
+    )
+    const plan = await planInstall('sodium', c)
+    expect(plan.items.map((i) => i.projectId)).toEqual([SODIUM.id, LIB.id])
+    expect(plan.links).toEqual([
+      { projectId: API.id, parentId: SODIUM.id },
+      { projectId: API.id, parentId: LIB.id }
+    ])
+  })
+
+  it('ignores a pinned dependency version that belongs to another project', async () => {
+    const c = ctx(
+      [SODIUM, API, LIB],
+      [
+        version('s1', SODIUM.id, { deps: [req(API.id, 'l1')] }),
+        version('l1', LIB.id),
+        version('a1', API.id)
+      ]
+    )
+    const plan = (await planInstall('sodium', c)).items
+    expect(plan.map((i) => [i.projectId, i.versionId])).toEqual([
+      [SODIUM.id, 's1'],
+      [API.id, 'a1']
+    ])
+  })
+
+  it('does not list a project as needed by itself when it depends on itself', async () => {
+    const c = ctx([SODIUM], [version('s1', SODIUM.id, { deps: [req(SODIUM.id)] })])
+    expect((await planInstall('sodium', c)).items.map((i) => i.dependencyOf)).toEqual([[]])
   })
 })
