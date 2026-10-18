@@ -43,6 +43,21 @@ export async function sha1File(path: string): Promise<string> {
   return hash.digest('hex')
 }
 
+const DOWNLOAD_HOST = 'cdn.modrinth.com'
+
+function checkDownloadUrl(url: string, fileName: string): void {
+  let ok = false
+  try {
+    const u = new URL(url)
+    ok = u.protocol === 'https:' && u.hostname === DOWNLOAD_HOST
+  } catch {
+    ok = false
+  }
+  if (!ok) throw new AppError('MODRINTH_API', `Unexpected download location for ${fileName}`)
+}
+
+const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
 const isOfflineError = (err: unknown): boolean =>
   err instanceof AppError && (err.code === 'NETWORK' || err.code === 'MODRINTH_API')
 
@@ -52,6 +67,8 @@ export interface ContentServiceDeps {
   client: ModrinthClient
   download: DownloadFn
   hashFile?: (path: string) => Promise<string>
+  /** File operations used when replacing and removing jars; defaults to node's. */
+  fsOps?: { rename?: typeof rename; rm?: typeof rm }
 }
 
 interface Ctx {
@@ -226,8 +243,7 @@ export class ContentService {
       const c = this.ctx(serverId)
       this.requireStopped(c)
       const name = safeFileName(fileName)
-      this.requireStopped(c)
-      await rm(join(c.folder, name), { force: true })
+      await (this.deps.fsOps?.rm ?? rm)(join(c.folder, name), { force: true })
       const manifest = await readManifest(c.rec.dir)
       const entries = manifest.entries.filter((e) => e.fileName !== name)
       if (entries.length !== manifest.entries.length)
@@ -285,11 +301,12 @@ export class ContentService {
    * Downloads the plan; `replacing` is the entry an update supersedes.
    *
    * Dependencies (plan index > 0) are downloaded before the root item (index 0), so a
-   * dependency failure never touches a file already on disk. When updating in place (the
-   * new root file keeps the old file's name), the root downloads to a temporary file next
-   * to it and is renamed over the old file only once every download has succeeded, so a
-   * mid-update failure never destroys or corrupts the old jar. Returns true if any file was
-   * actually written to disk.
+   * dependency failure never touches a file already on disk. An update always downloads the
+   * root to a temporary file and renames it into place only once every download and the
+   * stopped re-check have succeeded, so a failed update never destroys or corrupts a jar
+   * that was there before (including one whose name differs only in case, which is the same
+   * file on Windows). Rollback only deletes files this call created. Returns true if any
+   * file was actually written to disk.
    */
   private async apply(
     c: Ctx,
@@ -298,12 +315,17 @@ export class ContentService {
     replacing: ManifestEntry | null
   ): Promise<boolean> {
     if (plan.length === 0) return false
+    const fs = { rename: this.deps.fsOps?.rename ?? rename, rm: this.deps.fsOps?.rm ?? rm }
     const names = plan.map((item) => safeFileName(item.file.filename))
+    plan.forEach((item, i) => checkDownloadUrl(item.file.url, names[i]))
     const rootName = names[0]
-    const sameNameUpdate = replacing !== null && rootName === replacing.fileName
     const rootDest = join(c.folder, rootName)
-    const rootDownloadDest = sameNameUpdate ? `${rootDest}.blockhost-update` : rootDest
-    const written: string[] = []
+    const tempDest = `${rootDest}.blockhost-update`
+    const created: string[] = []
+    const rollback = async (): Promise<void> => {
+      // Each file independently: one that cannot be removed must not keep the rest around.
+      for (const file of created) await fs.rm(file, { force: true }).catch(() => {})
+    }
 
     try {
       for (let i = 1; i < plan.length; i++) {
@@ -314,32 +336,58 @@ export class ContentService {
           dest,
           hash: { algo: 'sha512', value: plan[i].file.sha512 }
         })
-        written.push(dest)
+        created.push(dest)
       }
 
       // An update always fetches a fresh root file; a plain install skips it if already present.
-      const skipRoot = replacing === null && (await pathExists(rootDest))
-      if (!skipRoot) {
+      if (replacing) {
         await this.deps.download({
           url: plan[0].file.url,
-          dest: rootDownloadDest,
+          dest: tempDest,
           hash: { algo: 'sha512', value: plan[0].file.sha512 }
         })
-        written.push(rootDownloadDest)
+        created.push(tempDest)
+        // The server may have started while these downloads were in flight; re-check right
+        // before touching the old file so a race never leaves it replaced while running.
+        this.requireStopped(c)
+      } else if (!(await pathExists(rootDest))) {
+        await this.deps.download({
+          url: plan[0].file.url,
+          dest: rootDest,
+          hash: { algo: 'sha512', value: plan[0].file.sha512 }
+        })
+        created.push(rootDest)
       }
-
-      // The server may have started while these downloads were in flight; re-check right
-      // before touching the old file so a race never leaves it replaced while running.
-      if (replacing) this.requireStopped(c)
     } catch (err) {
-      for (const file of written) await rm(file, { force: true })
+      await rollback()
       throw err
     }
 
-    if (sameNameUpdate) {
-      await rename(rootDownloadDest, rootDest)
-    } else if (replacing && replacing.fileName !== rootName) {
-      await rm(join(c.folder, replacing.fileName), { force: true })
+    let oldFileError = false
+    if (replacing) {
+      try {
+        await fs.rename(tempDest, rootDest)
+      } catch (err) {
+        await rollback()
+        throw new AppError(
+          'CONTENT_IO',
+          `Could not replace ${rootName}: ${errorMessage(err)}. Try again.`
+        )
+      }
+      const oldName = replacing.fileName
+      // On a case-insensitive file system a case-only rename already replaced the old file;
+      // only delete it when it is a different file, or still listed under its old spelling.
+      const removeOld =
+        oldName !== rootName &&
+        (oldName.toLowerCase() !== rootName.toLowerCase() ||
+          (await readdir(c.folder)).includes(oldName))
+      if (removeOld) {
+        try {
+          await fs.rm(join(c.folder, oldName), { force: true })
+        } catch {
+          oldFileError = true
+        }
+      }
     }
 
     const entries = manifest.entries
@@ -364,7 +412,13 @@ export class ContentService {
       })
     )
     await writeManifest(c.rec.dir, { version: 1, entries })
-    return written.length > 0
+    if (oldFileError) {
+      throw new AppError(
+        'CONTENT_IO',
+        `Updated ${plan[0].title}, but could not remove the old file ${replacing!.fileName}. Delete it by hand before starting the server.`
+      )
+    }
+    return created.length > 0
   }
 
   private result(c: Ctx, plan: Plan, wrote: boolean): ContentInstallResult {

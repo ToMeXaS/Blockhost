@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { ServerStatus, ServerType } from '../../shared/types'
@@ -47,7 +47,7 @@ function ver(
     })),
     files: [
       {
-        url: `https://cdn/${filename}`,
+        url: `https://cdn.modrinth.com/data/${filename}`,
         filename,
         primary: true,
         size: 1,
@@ -57,7 +57,13 @@ function ver(
   }
 }
 
-async function setup(opts: { type?: ServerType; status?: ServerStatus } = {}) {
+async function setup(
+  opts: {
+    type?: ServerType
+    status?: ServerStatus
+    fsOps?: { rename?: typeof rename; rm?: typeof rm }
+  } = {}
+) {
   const root = await tempDir()
   const store = new ServerStore(join(root, 'servers.json'))
   await store.load()
@@ -128,7 +134,8 @@ async function setup(opts: { type?: ServerType; status?: ServerStatus } = {}) {
     processes,
     client,
     download,
-    hashFile: async (p) => hashes[basename(p)] ?? `unknown-${basename(p)}`
+    hashFile: async (p) => hashes[basename(p)] ?? `unknown-${basename(p)}`,
+    fsOps: opts.fsOps
   })
   const mods = join(dir, 'mods')
   return { store, dir, mods, client, versions, download, downloads, hashes, processes, service }
@@ -624,5 +631,164 @@ describe('ContentService final review fixes', () => {
     expect(r).toBe('searched')
     release()
     await install
+  })
+
+  /** Installs Sodium as `oldName`, then offers an update whose file is `newName`. */
+  async function updateFixture(
+    oldName: string,
+    newName: string,
+    opts: Parameters<typeof setup>[0] = {},
+    extraDeps: string[] = []
+  ) {
+    const t = await setup(opts)
+    t.versions[0].files[0].filename = oldName
+    await t.service.install(ID, 'sodium')
+    t.hashes[oldName] = 'sha1-s1'
+    const s2 = ver('s2', SODIUM.id, newName, [API.id, ...extraDeps])
+    t.versions.push(s2)
+    t.client.latest.mockResolvedValueOnce({ 'sha1-s1': s2 })
+    t.download.mockImplementation(async (o: DownloadOptions) => {
+      await writeFile(o.dest, `new:${basename(o.dest)}`)
+    })
+    return t
+  }
+
+  it('keeps the new jar when an update only changes the file name case', async () => {
+    const { service, mods, dir } = await updateFixture('Sodium-1.jar', 'sodium-1.jar')
+    await service.update(ID, 'Sodium-1.jar')
+    const files = await readdir(mods)
+    expect(files.sort()).toEqual(['fabric-api-1.jar', 'sodium-1.jar'])
+    expect(await readFile(join(mods, 'sodium-1.jar'), 'utf8')).toBe(
+      'new:sodium-1.jar.blockhost-update'
+    )
+    const entry = (await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)
+    expect(entry).toMatchObject({ fileName: 'sodium-1.jar', versionId: 's2' })
+    expect(files).toContain(entry!.fileName)
+  })
+
+  it('leaves the original jar intact when a case-only update fails its re-check', async () => {
+    const { service, mods, dir, processes } = await updateFixture('Sodium-1.jar', 'sodium-1.jar')
+    processes.status.mockImplementationOnce(() => 'stopped').mockImplementation(() => 'running')
+    await expect(service.update(ID, 'Sodium-1.jar')).rejects.toMatchObject({
+      code: 'SERVER_RUNNING'
+    })
+    expect((await readdir(mods)).sort()).toEqual(['Sodium-1.jar', 'fabric-api-1.jar'])
+    expect(await readFile(join(mods, 'Sodium-1.jar'), 'utf8')).toBe('jar')
+    expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject({
+      fileName: 'Sodium-1.jar',
+      versionId: 's1'
+    })
+  })
+
+  it('never deletes an existing file that a failed update would have replaced', async () => {
+    const { service, mods, processes } = await updateFixture('sodium-1.jar', 'sodium-2.jar')
+    await writeFile(join(mods, 'Sodium-2.jar'), 'manual')
+    processes.status.mockImplementationOnce(() => 'stopped').mockImplementation(() => 'running')
+    await expect(service.update(ID, 'sodium-1.jar')).rejects.toMatchObject({
+      code: 'SERVER_RUNNING'
+    })
+    expect((await readdir(mods)).sort()).toEqual([
+      'Sodium-2.jar',
+      'fabric-api-1.jar',
+      'sodium-1.jar'
+    ])
+    expect(await readFile(join(mods, 'Sodium-2.jar'), 'utf8')).toBe('manual')
+  })
+
+  it('keeps rolling back when one file cannot be removed, and reports the original error', async () => {
+    const NEW_DEP: ModrinthProject = {
+      id: 'NEWDEP01',
+      slug: 'newdep',
+      title: 'NewDep',
+      icon_url: null,
+      server_side: 'optional'
+    }
+    const failingRm = vi.fn(
+      async (path: Parameters<typeof rm>[0], o?: Parameters<typeof rm>[1]) => {
+        if (String(path).includes('newdep')) throw new Error('EBUSY: resource busy or locked')
+        return rm(path, o)
+      }
+    )
+    const { service, mods, client, versions, processes } = await updateFixture(
+      'sodium-1.jar',
+      'sodium-2.jar',
+      { fsOps: { rm: failingRm } },
+      [NEW_DEP.id]
+    )
+    versions.push(ver('nd1', NEW_DEP.id, 'newdep-1.jar'))
+    const original = client.project.getMockImplementation()!
+    client.project.mockImplementation(async (id: string) =>
+      id === NEW_DEP.id ? NEW_DEP : original(id)
+    )
+    processes.status.mockImplementationOnce(() => 'stopped').mockImplementation(() => 'running')
+    await expect(service.update(ID, 'sodium-1.jar')).rejects.toMatchObject({
+      code: 'SERVER_RUNNING'
+    })
+    expect(failingRm).toHaveBeenCalledTimes(2)
+    expect((await readdir(mods)).sort()).toEqual([
+      'fabric-api-1.jar',
+      'newdep-1.jar',
+      'sodium-1.jar'
+    ])
+  })
+
+  it('reports a failed replace and leaves the old jar in place', async () => {
+    const failingRename = vi.fn(async () => {
+      throw new Error('EPERM: operation not permitted')
+    })
+    const { service, mods, dir } = await updateFixture('sodium-1.jar', 'sodium-2.jar', {
+      fsOps: { rename: failingRename }
+    })
+    await expect(service.update(ID, 'sodium-1.jar')).rejects.toMatchObject({
+      code: 'CONTENT_IO',
+      message: 'Could not replace sodium-2.jar: EPERM: operation not permitted. Try again.'
+    })
+    expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-1.jar'])
+    expect(await readFile(join(mods, 'sodium-1.jar'), 'utf8')).toBe('jar')
+    expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject({
+      fileName: 'sodium-1.jar',
+      versionId: 's1'
+    })
+  })
+
+  it('records the update but asks for a manual delete when the old jar cannot be removed', async () => {
+    const failingRm = vi.fn(async () => {
+      throw new Error('EBUSY: resource busy or locked')
+    })
+    const { service, mods, dir } = await updateFixture('sodium-1.jar', 'sodium-2.jar', {
+      fsOps: { rm: failingRm }
+    })
+    await expect(service.update(ID, 'sodium-1.jar')).rejects.toMatchObject({
+      code: 'CONTENT_IO',
+      message:
+        'Updated Sodium, but could not remove the old file sodium-1.jar. Delete it by hand before starting the server.'
+    })
+    expect((await readdir(mods)).sort()).toEqual([
+      'fabric-api-1.jar',
+      'sodium-1.jar',
+      'sodium-2.jar'
+    ])
+    const entries = (await readManifest(dir)).entries
+    expect(entries.find((e) => e.projectId === SODIUM.id)).toMatchObject({
+      fileName: 'sodium-2.jar',
+      versionId: 's2'
+    })
+    expect(entries.find((e) => e.fileName === 'sodium-1.jar')).toBeUndefined()
+  })
+
+  it('refuses download links outside the Modrinth CDN before writing anything', async () => {
+    for (const url of [
+      'http://cdn.modrinth.com/data/x.jar',
+      'https://evil.example/x.jar',
+      'not a url'
+    ]) {
+      const { service, versions, download } = await setup()
+      versions[1].files[0].url = url
+      await expect(service.install(ID, 'sodium')).rejects.toMatchObject({
+        code: 'MODRINTH_API',
+        message: 'Unexpected download location for fabric-api-1.jar'
+      })
+      expect(download).not.toHaveBeenCalled()
+    }
   })
 })
