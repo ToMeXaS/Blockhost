@@ -160,12 +160,15 @@ function TunnelCard({
           <>
             <div className="flex items-center gap-3">
               <Switch
+                id="share-switch"
                 checked={shared}
                 onChange={(checked) => void toggle(checked)}
                 disabled={busy}
                 label="Share this server"
               />
-              <span className="text-sm text-text">Share this server</span>
+              <label htmlFor="share-switch" className="cursor-pointer text-sm text-text">
+                Share this server
+              </label>
             </div>
 
             {status && shared && (
