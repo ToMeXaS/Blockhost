@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AppError } from '../errors'
 import { createPlayitApi } from '../tunnel/api'
+import { downloadFile } from '../net/download'
+import { tempDir } from '../test-utils'
+import { PlayitdBinary, sha256File, PLAYITD_SHA256 } from '../tunnel/binary'
 
 const secret = process.env.PLAYIT_TEST_SECRET
 
@@ -41,5 +44,13 @@ describe.skipIf(!secret)('playit.gg API (live, needs PLAYIT_TEST_SECRET)', () =>
     } finally {
       await api.deleteTunnel(secret!, id)
     }
+  })
+})
+
+describe('playitd download (network, ~5 MB)', () => {
+  it('downloads the pinned agent and verifies its checksum', async () => {
+    const binary = new PlayitdBinary({ dir: await tempDir(), download: downloadFile })
+    const exe = await binary.ensure()
+    expect(await sha256File(exe)).toBe(PLAYITD_SHA256)
   })
 })
