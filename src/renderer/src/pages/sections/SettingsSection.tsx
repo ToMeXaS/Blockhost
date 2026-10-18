@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ServerView, SystemInfo } from '../../../../shared/types'
-import { Button, ErrorText, Field, inputClass } from '../../components/ui'
+import { Button, Card, ErrorText, Field, inputClass, Notice } from '../../components/ui'
 import { api, errorMessage } from '../../lib/api'
 import { formatRam, maxRamMb } from '../../lib/format'
 
@@ -76,72 +76,88 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
   }
 
   return (
-    <div className="max-w-2xl space-y-6 pb-6">
-      <Field label={`Memory: ${formatRam(ramMb)}`}>
-        <input
-          type="range"
-          className="w-full accent-emerald-500"
-          min={1024}
-          max={ramMax}
-          step={512}
-          value={ramMb}
-          onChange={(e) => setRamMb(Number(e.target.value))}
-        />
-      </Field>
-
-      <Field
-        label="Java"
-        hint={
-          javaPath
-            ? 'Using a custom Java. Make sure its version matches what this Minecraft version needs.'
-            : 'Blockhost downloads and uses the right Java version automatically.'
+    <div className="space-y-4">
+      <Card
+        title="Memory & Java"
+        actions={
+          <Button
+            variant="secondary"
+            onClick={() =>
+              void api.openFolder(server.id).catch((err) => setError(errorMessage(err)))
+            }
+          >
+            Open server folder
+          </Button>
         }
       >
-        <div className="flex gap-2">
-          <input
-            className={inputClass}
-            readOnly
-            value={javaPath ?? 'Automatic (Eclipse Temurin)'}
-          />
-          <Button onClick={() => void browseJava()}>Browse…</Button>
-          {javaPath && <Button onClick={() => setJavaPath(undefined)}>Use automatic</Button>}
+        <div className="space-y-4">
+          <Field label={`Memory: ${formatRam(ramMb)}`}>
+            <input
+              type="range"
+              className="accent-accent w-full"
+              min={1024}
+              max={ramMax}
+              step={512}
+              value={ramMb}
+              onChange={(e) => setRamMb(Number(e.target.value))}
+            />
+          </Field>
+
+          <Field
+            label="Java"
+            hint={
+              javaPath
+                ? 'Using a custom Java. Make sure its version matches what this Minecraft version needs.'
+                : 'Blockhost downloads and uses the right Java version automatically.'
+            }
+          >
+            <div className="flex gap-2">
+              <input
+                className={`${inputClass} font-mono`}
+                readOnly
+                value={javaPath ?? 'Automatic (Eclipse Temurin)'}
+              />
+              <Button onClick={() => void browseJava()}>Browse…</Button>
+              {javaPath && <Button onClick={() => setJavaPath(undefined)}>Use automatic</Button>}
+            </div>
+          </Field>
+
+          <Field
+            label="Extra JVM arguments"
+            hint="Advanced. Separate with spaces, e.g. -XX:+UseG1GC"
+          >
+            <input
+              className={`${inputClass} font-mono`}
+              value={jvmArgs}
+              onChange={(e) => setJvmArgs(e.target.value)}
+              placeholder="-XX:+UseG1GC"
+            />
+          </Field>
+
+          {warning && <Notice tone="warn">{warning}</Notice>}
+          {error && <ErrorText>{error}</ErrorText>}
+          {notice && <Notice tone="ok">{notice}</Notice>}
+
+          <div className="flex justify-end">
+            <Button variant="primary" disabled={!dirty || saving} onClick={() => void save()}>
+              {saving ? 'Saving…' : 'Save settings'}
+            </Button>
+          </div>
         </div>
-      </Field>
+      </Card>
 
-      <Field label="Extra JVM arguments" hint="Advanced. Separate with spaces, e.g. -XX:+UseG1GC">
-        <input
-          className={`${inputClass} font-mono`}
-          value={jvmArgs}
-          onChange={(e) => setJvmArgs(e.target.value)}
-          placeholder="-XX:+UseG1GC"
-        />
-      </Field>
-
-      {warning && <p className="text-sm text-amber-300">{warning}</p>}
-      {error && <ErrorText>{error}</ErrorText>}
-      <div className="flex items-center gap-3">
-        <Button variant="primary" disabled={!dirty || saving} onClick={() => void save()}>
-          {saving ? 'Saving…' : 'Save settings'}
-        </Button>
-        <Button
-          onClick={() => void api.openFolder(server.id).catch((err) => setError(errorMessage(err)))}
-        >
-          Open server folder
-        </Button>
-        {notice && <span className="text-sm text-emerald-400">{notice}</span>}
-      </div>
-
-      <section className="space-y-3 rounded-md border border-red-900/60 p-4">
-        <h3 className="font-medium text-red-300">Delete server</h3>
+      <section className="rounded-card border border-bad-border bg-bad-bg/40 p-5 space-y-3">
+        <h3 className="text-[15px] font-semibold text-danger">Delete server</h3>
         {!confirmDelete ? (
           <Button variant="danger" disabled={!stopped} onClick={() => setConfirmDelete(true)}>
             Delete…
           </Button>
         ) : (
           <div className="space-y-3">
-            <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <label className="flex items-center gap-2 text-sm text-text-2">
               <input
                 type="checkbox"
+                className="accent-accent"
                 checked={keepFiles}
                 onChange={(e) => setKeepFiles(e.target.checked)}
               />
@@ -155,7 +171,7 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
             </div>
           </div>
         )}
-        {!stopped && <p className="text-xs text-zinc-500">Stop the server before deleting it.</p>}
+        {!stopped && <p className="text-xs text-faint">Stop the server before deleting it.</p>}
       </section>
     </div>
   )
