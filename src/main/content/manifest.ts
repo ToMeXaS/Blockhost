@@ -42,15 +42,23 @@ export function manifestPath(serverDir: string): string {
 }
 
 export async function readManifest(serverDir: string): Promise<Manifest> {
+  let text: string
   try {
-    const parsed = JSON.parse(await readFile(manifestPath(serverDir), 'utf8')) as {
-      entries?: unknown
-    }
-    const entries = Array.isArray(parsed?.entries) ? parsed.entries.filter(isEntry) : []
-    return { version: 1, entries }
+    text = await readFile(manifestPath(serverDir), 'utf8')
+  } catch (err) {
+    // Only a missing file means "nothing installed yet"; any other read error (locked,
+    // permission denied...) must not be mistaken for an empty manifest and overwritten.
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, entries: [] }
+    throw err
+  }
+  let parsed: { entries?: unknown } | null
+  try {
+    parsed = JSON.parse(text) as { entries?: unknown } | null
   } catch {
     return { version: 1, entries: [] }
   }
+  const entries = Array.isArray(parsed?.entries) ? parsed.entries.filter(isEntry) : []
+  return { version: 1, entries }
 }
 
 export async function writeManifest(serverDir: string, manifest: Manifest): Promise<void> {

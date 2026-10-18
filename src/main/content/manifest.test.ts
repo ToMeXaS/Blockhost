@@ -47,4 +47,10 @@ describe('manifest', () => {
     )
     expect(await readManifest(dir)).toEqual({ version: 1, entries: [entry] })
   })
+
+  it('rethrows read errors other than a missing file', async () => {
+    const dir = await tempDir()
+    await mkdir(manifestPath(dir), { recursive: true })
+    await expect(readManifest(dir)).rejects.toMatchObject({ code: 'EISDIR' })
+  })
 })
