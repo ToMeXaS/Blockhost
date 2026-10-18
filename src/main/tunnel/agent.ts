@@ -60,6 +60,9 @@ export class AgentProcess {
   private stopRequested = false
   private failures = 0
   private timer: ReturnType<typeof setTimeout> | undefined
+  /** Bumped by stop(); a launch from an older generation never spawns. */
+  private generation = 0
+  private launching: Promise<void> | null = null
 
   constructor(deps: AgentProcessDeps) {
     this.deps = deps
@@ -70,9 +73,12 @@ export class AgentProcess {
   }
 
   async start(): Promise<void> {
-    if (this.child || this.timer) return
     this.stopRequested = false
-    await this.launch()
+    // A launch still preparing the exe may belong to an older generation and bail;
+    // wait for it so only one playitd is ever spawned.
+    while (this.launching) await this.launching
+    if (this.child || this.timer || this.stopRequested) return
+    await this.beginLaunch()
   }
 
   async retry(): Promise<void> {
@@ -82,6 +88,7 @@ export class AgentProcess {
 
   stop(): void {
     this.stopRequested = true
+    this.generation++
     clearTimeout(this.timer)
     this.timer = undefined
     const child = this.child
@@ -97,22 +104,32 @@ export class AgentProcess {
     this.deps.onEvent(event)
   }
 
+  private beginLaunch(): Promise<void> {
+    const launch: Promise<void> = this.launch().finally(() => {
+      if (this.launching === launch) this.launching = null
+    })
+    this.launching = launch
+    return launch
+  }
+
   private async launch(): Promise<void> {
     this.timer = undefined
+    const generation = this.generation
+    const superseded = (): boolean => this.stopRequested || this.generation !== generation
     this.emit({ state: 'starting' })
     let exe: string
     try {
       exe = await this.deps.exe()
     } catch (err) {
-      if (this.stopRequested) {
+      if (superseded()) {
         if (this.current !== 'stopped') this.emit({ state: 'stopped' })
         return
       }
       this.emit({ state: 'error', message: (err as Error).message })
       return
     }
-    if (this.stopRequested) {
-      this.emit({ state: 'stopped' })
+    if (superseded()) {
+      if (this.current !== 'stopped') this.emit({ state: 'stopped' })
       return
     }
 
@@ -163,6 +180,6 @@ export class AgentProcess {
       return
     }
     this.emit({ state: 'starting', message })
-    this.timer = setTimeout(() => void this.launch(), delay)
+    this.timer = setTimeout(() => void this.beginLaunch(), delay)
   }
 }

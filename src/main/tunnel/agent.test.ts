@@ -239,6 +239,50 @@ describe('AgentProcess', () => {
     await flush()
     expect(spawn).not.toHaveBeenCalled()
     expect(events.at(-1)).toEqual({ state: 'stopped' })
+    expect(events.filter((e) => e.state === 'stopped')).toHaveLength(1)
+  })
+
+  it('spawns once when stop() and start() overlap a restart that is preparing the exe', async () => {
+    vi.useFakeTimers()
+    const children: FakeChild[] = []
+    let nextPid = 100
+    const spawn = vi.fn(() => {
+      const child = new FakeChild()
+      child.pid = nextPid++
+      children.push(child)
+      return child as unknown as ChildLike
+    })
+    const kill = vi.fn(async () => {})
+    const events: AgentEvent[] = []
+    const pending: ((exe: string) => void)[] = []
+    const agent = new AgentProcess({
+      spawn,
+      kill,
+      exe: () => new Promise<string>((resolve) => pending.push(resolve)),
+      secretPath: 'C:/data/playit/playit.toml',
+      onEvent: (e) => events.push(e)
+    })
+    const first = agent.start()
+    pending.shift()!('C:/playitd.exe')
+    await first
+    expect(spawn).toHaveBeenCalledTimes(1)
+
+    children[0].exit(1)
+    await vi.advanceTimersByTimeAsync(2000) // restart timer fires; launch awaits exe()
+    expect(pending).toHaveLength(1)
+    agent.stop()
+    const restarted = agent.start()
+    await flush()
+    for (const resolve of pending.splice(0)) resolve('C:/playitd.exe')
+    await flush()
+    for (const resolve of pending.splice(0)) resolve('C:/playitd.exe')
+    await restarted
+    await flush()
+
+    expect(spawn).toHaveBeenCalledTimes(2)
+    expect(agent.state()).toBe('starting')
+    agent.stop()
+    expect(kill).toHaveBeenLastCalledWith(children[1].pid)
   })
 
   it('stays stopped when stop() races a scheduled restart', async () => {
