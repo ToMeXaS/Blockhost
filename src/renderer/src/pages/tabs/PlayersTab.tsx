@@ -158,7 +158,7 @@ export function PlayersTab({ server }: { server: ServerView }) {
         err.code === 'LIST_FILE_CORRUPT' &&
         window.confirm(`${err.message}\n\nReplace it?`)
       ) {
-        return act({ ...action, overwriteCorrupt: true })
+        return await act({ ...action, overwriteCorrupt: true })
       }
       setError(errorMessage(err))
       return false
