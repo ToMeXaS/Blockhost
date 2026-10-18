@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { PropertyEntry, ServerView } from '../../../../shared/types'
-import { Button, ErrorText, Field, inputClass } from '../../components/ui'
+import {
+  Button,
+  Card,
+  ErrorText,
+  inputClass,
+  Notice,
+  Switch,
+  Table,
+  Td,
+  Th,
+  trClass
+} from '../../components/ui'
 import { api, errorMessage } from '../../lib/api'
 
 type Kind = 'text' | 'number' | 'bool' | 'select'
@@ -119,53 +130,56 @@ export function PropertiesSection({
   }
 
   if (!entries)
-    return error ? (
-      <ErrorText>{error}</ErrorText>
-    ) : (
-      <p className="text-sm text-zinc-500">Loading…</p>
-    )
+    return error ? <ErrorText>{error}</ErrorText> : <p className="text-sm text-faint">Loading…</p>
 
   const commonKeys = new Set(COMMON.map((c) => c.key))
   const advanced = entries.filter((e) => !commonKeys.has(e.key))
   const newKeyValid = KEY_PATTERN.test(newKey) && !entries.some((e) => e.key === newKey)
+  const restartNeeded = !!notice && notice !== 'Saved.'
 
   return (
-    <div className="max-w-3xl space-y-6 pb-6">
+    <div className="space-y-4 pb-6">
       {entries.length <= 2 && (
-        <p className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-400">
+        <Notice tone="info">
           The full list of settings is generated the first time the server starts. You can already
           set the common ones below.
-        </p>
+        </Notice>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {COMMON.map((def) => (
-          <PropertyInput
-            key={def.key}
-            def={def}
-            value={get(def.key)}
-            onChange={(v) => set(def.key, v)}
-          />
-        ))}
-      </div>
+      <Card title="Common settings">
+        <div className="divide-y divide-border-soft">
+          {COMMON.map((def) => (
+            <PropertyRow
+              key={def.key}
+              def={def}
+              value={get(def.key)}
+              onChange={(v) => set(def.key, v)}
+            />
+          ))}
+        </div>
+      </Card>
 
-      <details className="rounded-md border border-zinc-800 bg-zinc-900 p-4">
-        <summary className="cursor-pointer text-sm font-medium">
-          Advanced: all other properties ({advanced.length})
-        </summary>
-        <table className="mt-3 w-full text-sm">
+      <Card title={`Advanced: all other properties (${advanced.length})`}>
+        <Table>
+          <thead>
+            <tr>
+              <Th>Key</Th>
+              <Th>Value</Th>
+              <Th />
+            </tr>
+          </thead>
           <tbody>
             {advanced.map((entry) => (
-              <tr key={entry.key} className="border-t border-zinc-800">
-                <td className="py-1 pr-3 font-mono text-xs text-zinc-400">{entry.key}</td>
-                <td className="py-1">
+              <tr key={entry.key} className={trClass}>
+                <Td className="font-mono text-text-2">{entry.key}</Td>
+                <Td>
                   <input
                     className={inputClass}
                     value={entry.value}
                     onChange={(e) => set(entry.key, e.target.value)}
                   />
-                </td>
-                <td className="py-1 pl-2">
+                </Td>
+                <Td>
                   <Button
                     variant="ghost"
                     aria-label={`Remove ${entry.key}`}
@@ -173,27 +187,27 @@ export function PropertiesSection({
                   >
                     ✕
                   </Button>
-                </td>
+                </Td>
               </tr>
             ))}
-            <tr className="border-t border-zinc-800">
-              <td className="py-2 pr-3">
+            <tr className={trClass}>
+              <Td className="font-mono text-text-2">
                 <input
                   className={`${inputClass} font-mono text-xs`}
                   placeholder="new-key"
                   value={newKey}
                   onChange={(e) => setNewKey(e.target.value.trim())}
                 />
-              </td>
-              <td className="py-2">
+              </Td>
+              <Td>
                 <input
                   className={inputClass}
                   placeholder="value"
                   value={newValue}
                   onChange={(e) => setNewValue(e.target.value)}
                 />
-              </td>
-              <td className="py-2 pl-2">
+              </Td>
+              <Td>
                 <Button
                   disabled={!newKeyValid}
                   onClick={() => {
@@ -204,24 +218,24 @@ export function PropertiesSection({
                 >
                   Add
                 </Button>
-              </td>
+              </Td>
             </tr>
           </tbody>
-        </table>
-      </details>
+        </Table>
+      </Card>
 
       {error && <ErrorText>{error}</ErrorText>}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-end gap-3">
+        {notice && <Notice tone={restartNeeded ? 'warn' : 'ok'}>{notice}</Notice>}
         <Button variant="primary" disabled={!dirty || saving} onClick={() => void save()}>
           {saving ? 'Saving…' : 'Save changes'}
         </Button>
-        {notice && <span className="text-sm text-emerald-400">{notice}</span>}
       </div>
     </div>
   )
 }
 
-function PropertyInput({
+function PropertyRow({
   def,
   value,
   onChange
@@ -230,40 +244,43 @@ function PropertyInput({
   value: string
   onChange: (value: string) => void
 }) {
-  if (def.kind === 'bool') {
-    return (
-      <label className="flex items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="mt-1"
-          checked={value === 'true'}
-          onChange={(e) => onChange(String(e.target.checked))}
-        />
-        <span>
-          <span className="text-zinc-200">{def.label}</span>
-          {def.hint && <span className="block text-xs text-zinc-500">{def.hint}</span>}
-        </span>
-      </label>
-    )
-  }
   return (
-    <Field label={def.label} hint={def.hint}>
-      {def.kind === 'select' ? (
-        <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value)}>
-          {def.options?.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <input
-          className={inputClass}
-          type={def.kind === 'number' ? 'number' : 'text'}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )}
-    </Field>
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="min-w-0">
+        <div className="text-sm text-text">{def.label}</div>
+        <div className="font-mono text-xs text-faint">{def.key}</div>
+        {def.hint && <div className="mt-0.5 text-xs text-faint">{def.hint}</div>}
+      </div>
+      <div className="w-56 shrink-0">
+        {def.kind === 'bool' ? (
+          <div className="flex justify-end">
+            <Switch
+              checked={value === 'true'}
+              onChange={(v) => onChange(v ? 'true' : 'false')}
+              label={def.label}
+            />
+          </div>
+        ) : def.kind === 'select' ? (
+          <select
+            className={`${inputClass} pr-8`}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          >
+            {def.options?.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            className={`${inputClass} ${def.kind === 'number' ? 'font-mono' : ''}`}
+            type={def.kind === 'number' ? 'number' : 'text'}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        )}
+      </div>
+    </div>
   )
 }
