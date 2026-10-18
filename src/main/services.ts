@@ -20,6 +20,11 @@ import { ServerInstaller } from './servers/installer'
 import { defaultSpawn, killTree, ProcessManager } from './servers/process'
 import { ServerService } from './servers/service'
 import { ServerStore } from './servers/store'
+import { PlayitAccount } from './tunnel/account'
+import { AgentProcess } from './tunnel/agent'
+import { createPlayitApi } from './tunnel/api'
+import { PlayitdBinary } from './tunnel/binary'
+import { TunnelService } from './tunnel/service'
 
 export type SendEvent = <C extends EventChannel>(channel: C, payload: EventPayloads[C]) => void
 
@@ -32,14 +37,16 @@ export interface Services {
   processes: ProcessManager
   servers: ServerService
   players: PlayerService
+  tunnels: TunnelService
 }
 
 export async function createServices(opts: {
   dataDir: string
   serversDir: string
   send: SendEvent
+  openUrl: (url: string) => Promise<void>
 }): Promise<Services> {
-  const { dataDir, serversDir, send } = opts
+  const { dataDir, serversDir, send, openUrl } = opts
   const http = createHttpClient({
     cache: new JsonCache(join(dataDir, 'cache')),
     onStale: (url) => send('net:offline', { url })
@@ -70,6 +77,7 @@ export async function createServices(opts: {
     onStatus: (event) => {
       send('server:status', event)
       players.onStatus(event)
+      tunnels.onServerStatus(event)
     },
     onLog: (event) => {
       send('server:log', event)
@@ -83,6 +91,30 @@ export async function createServices(opts: {
     watch: defaultWatch,
     emit: (event) => send('players:changed', event)
   })
+  const playitDir = join(dataDir, 'playit')
+  const playitApi = createPlayitApi()
+  const playitBinary = new PlayitdBinary({ dir: playitDir, download: downloadFile })
+  const playitAccount = new PlayitAccount({
+    file: join(playitDir, 'playit.toml'),
+    api: playitApi,
+    openUrl
+  })
+  const playitAgent = new AgentProcess({
+    spawn: defaultSpawn,
+    kill: killTree,
+    exe: () => playitBinary.ensure(),
+    secretPath: join(playitDir, 'playit.toml'),
+    onEvent: (event) => tunnels.onAgentEvent(event)
+  })
+  const tunnels = new TunnelService({
+    store,
+    processes,
+    account: playitAccount,
+    api: playitApi,
+    binary: playitBinary,
+    agent: playitAgent,
+    emit: (status) => send('tunnel:status', status)
+  })
   const servers = new ServerService({
     store,
     installer,
@@ -90,7 +122,8 @@ export async function createServices(opts: {
     java,
     probeJava,
     isPortFree: (port) => isPortFree(port),
-    removeDir: (dir) => rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
+    removeDir: (dir) => rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }),
+    onRemoved: (rec) => tunnels.onServerRemoved(rec)
   })
   return {
     paths: { dataDir, serversDir },
@@ -100,6 +133,7 @@ export async function createServices(opts: {
     installer,
     processes,
     servers,
-    players
+    players,
+    tunnels
   }
 }

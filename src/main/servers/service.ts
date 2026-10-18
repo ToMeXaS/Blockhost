@@ -26,6 +26,8 @@ export interface ServerServiceDeps {
   probeJava: (javaPath: string) => Promise<number | null>
   isPortFree: (port: number) => Promise<boolean>
   removeDir: (dir: string) => Promise<void>
+  /** Called after a server has been removed from the store. */
+  onRemoved?: (rec: ServerRecord) => void
 }
 
 export class ServerService {
@@ -114,6 +116,7 @@ export class ServerService {
     }
     const rec = this.deps.store.get(id)
     await this.deps.store.remove(id)
+    this.deps.onRemoved?.(rec)
     if (!keepFiles) await this.deps.removeDir(rec.dir)
   }
 

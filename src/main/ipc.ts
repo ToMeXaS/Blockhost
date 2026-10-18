@@ -41,7 +41,7 @@ export function registerIpc(
   getWindow: () => BrowserWindow | null,
   updates: { status(): UpdateStatus; requestInstall(): void }
 ): void {
-  const { servers, installer, providers, javaManager, http, paths, players } = services
+  const { servers, installer, providers, javaManager, http, paths, players, tunnels } = services
 
   const openDialog = async (options: OpenDialogOptions): Promise<string | null> => {
     const win = getWindow()
@@ -91,6 +91,16 @@ export function registerIpc(
   handle('players:action', z.tuple([idSchema, playerActionSchema]), (id, action) =>
     players.action(id, action)
   )
+
+  handle('tunnel:account', z.tuple([]), () => tunnels.account())
+  handle('tunnel:link', z.tuple([]), () => tunnels.link())
+  handle('tunnel:cancelLink', z.tuple([]), () => tunnels.cancelLink())
+  handle('tunnel:unlink', z.tuple([]), () => tunnels.unlink())
+  handle('tunnel:setShared', z.tuple([idSchema, z.boolean()]), (id, enabled) =>
+    tunnels.setShared(id, enabled)
+  )
+  handle('tunnel:status', z.tuple([idSchema]), (id) => tunnels.status(id))
+  handle('tunnel:retry', z.tuple([idSchema]), (id) => tunnels.retry(id))
 
   handle('java:install', z.tuple([javaMajorSchema]), async (major) => {
     await javaManager.ensure(major)

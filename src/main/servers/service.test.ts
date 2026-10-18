@@ -188,4 +188,22 @@ describe('ServerService', () => {
     installer.isInstalling.mockReturnValue(true)
     await expect(service.remove(ID, false)).rejects.toMatchObject({ code: 'INSTALLING' })
   })
+
+  it('calls onRemoved with the deleted record', async () => {
+    const { store, rec, processes, installer, java, probeJava, isPortFree, removeDir } =
+      await setup()
+    const onRemoved = vi.fn()
+    const service = new ServerService({
+      store,
+      installer,
+      processes,
+      java,
+      probeJava,
+      isPortFree,
+      removeDir,
+      onRemoved
+    })
+    await service.remove(rec.id, true)
+    expect(onRemoved).toHaveBeenCalledWith(expect.objectContaining({ id: rec.id, name: rec.name }))
+  })
 })

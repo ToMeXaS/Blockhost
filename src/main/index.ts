@@ -139,6 +139,7 @@ app.on('before-quit', (event) => {
 })
 
 app.on('window-all-closed', () => app.quit())
+app.on('will-quit', () => services?.tunnels.dispose())
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -157,7 +158,8 @@ if (!app.requestSingleInstanceLock()) {
       services = await createServices({
         dataDir: join(app.getPath('appData'), 'Blockhost'),
         serversDir: join(app.getPath('documents'), 'MinecraftServers'),
-        send
+        send,
+        openUrl: (url) => shell.openExternal(url)
       })
     } catch (err) {
       dialog.showErrorBox(

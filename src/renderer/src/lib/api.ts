@@ -5,11 +5,13 @@ import type {
   NetInfo,
   PlayerAction,
   PlayerLists,
+  PlayitAccountStatus,
   PropertyEntry,
   ServerPatch,
   ServerType,
   ServerView,
   SystemInfo,
+  TunnelStatus,
   UpdateResult,
   UpdateStatus,
   VersionInfo
@@ -59,6 +61,15 @@ export const api = {
   getPlayers: (id: string) => call<PlayerLists>('players:get', id),
   playerAction: (id: string, action: PlayerAction) =>
     call<PlayerLists>('players:action', id, action),
+
+  tunnelAccount: () => call<PlayitAccountStatus>('tunnel:account'),
+  tunnelLink: () => call<void>('tunnel:link'),
+  tunnelCancelLink: () => call<void>('tunnel:cancelLink'),
+  tunnelUnlink: () => call<void>('tunnel:unlink'),
+  tunnelSetShared: (id: string, enabled: boolean) =>
+    call<TunnelStatus>('tunnel:setShared', id, enabled),
+  tunnelStatus: (id: string) => call<TunnelStatus>('tunnel:status', id),
+  tunnelRetry: (id: string) => call<TunnelStatus>('tunnel:retry', id),
 
   installJava: (major: number) => call<void>('java:install', major),
   systemInfo: () => call<SystemInfo>('system:info'),
