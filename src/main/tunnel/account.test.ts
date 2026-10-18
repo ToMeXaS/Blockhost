@@ -3,7 +3,13 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { tempDir } from '../test-utils'
 import { claimExpired, claimRejected, type ClaimSetupState } from './api'
-import { CLAIM_TIMEOUT_MS, parseSecretFile, PlayitAccount, secretFileContent } from './account'
+import {
+  CLAIM_TIMEOUT_MS,
+  generateClaimCode,
+  parseSecretFile,
+  PlayitAccount,
+  secretFileContent
+} from './account'
 
 async function setup(
   opts: {
@@ -136,5 +142,14 @@ describe('PlayitAccount', () => {
     await account.link()
     await writeFile(file, 'secret_key = "other"\n')
     expect(await account.secret()).toBe('other')
+  })
+})
+
+describe('generateClaimCode', () => {
+  it('makes the 10-character hex code playit.gg accepts', () => {
+    // playit rejects longer codes with InvalidCode; its own agent uses 5 random bytes.
+    const code = generateClaimCode()
+    expect(code).toMatch(/^[0-9a-f]{10}$/)
+    expect(generateClaimCode()).not.toBe(code)
   })
 })

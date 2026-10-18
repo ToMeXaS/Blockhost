@@ -10,6 +10,11 @@ export const CLAIM_TIMEOUT_MS = 10 * 60 * 1000
 
 const KEY_PATTERN = /^[A-Za-z0-9_-]+$/
 
+/** 5 random bytes as hex, like playit's own agent; longer codes are rejected as InvalidCode. */
+export function generateClaimCode(): string {
+  return randomBytes(5).toString('hex')
+}
+
 export function secretFileContent(key: string): string {
   return `secret_key = "${key}"\n`
 }
@@ -93,7 +98,7 @@ export class PlayitAccount {
   private async run(signal: AbortSignal): Promise<void> {
     const sleep = this.deps.sleep ?? abortableSleep
     const now = this.deps.now ?? Date.now
-    const code = (this.deps.randomCode ?? (() => randomBytes(16).toString('hex')))()
+    const code = (this.deps.randomCode ?? generateClaimCode)()
     await this.deps.openUrl(`${CLAIM_URL}${code}`)
     const deadline = now() + CLAIM_TIMEOUT_MS
 
