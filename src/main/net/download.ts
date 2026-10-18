@@ -8,7 +8,7 @@ import type { ReadableStream as WebReadableStream } from 'node:stream/web'
 import { AppError } from '../errors'
 import { USER_AGENT } from './http'
 
-export type HashAlgo = 'sha1' | 'sha256' | 'md5'
+export type HashAlgo = 'sha1' | 'sha256' | 'sha512' | 'md5'
 
 export interface DownloadOptions {
   url: string
