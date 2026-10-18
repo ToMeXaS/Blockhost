@@ -90,10 +90,14 @@ Reads and writes the vanilla formats:
 Per-server online set fed by the same log lines the console gets (after ANSI
 stripping):
 
-- Join: `/: ([A-Za-z0-9_]{3,16}) joined the game$/`
-- Leave: `/: ([A-Za-z0-9_]{3,16}) left the game$/`
-- Anchoring on the `: ` logger prefix (rather than matching anywhere) prevents
-  chat spoofing, since chat lines are formatted `<name> message`.
+- A line counts only if it starts with one or more `[...]` logger groups
+  followed by `: ` and then the message (prefix
+  `^(?:\[[^\]]*\]\s*)+:\s`).
+- Join: prefix + `([A-Za-z0-9_]{3,16}) joined the game$`
+- Leave: prefix + `([A-Za-z0-9_]{3,16}) left the game$`
+- Anchoring on the full logger prefix (rather than any `: `) prevents chat
+  spoofing, since chat lines continue `<name> message` after the prefix and a
+  message like `hi: Steve joined the game` cannot match.
 - Resync: when the `Done (…)!` line is seen, the tracker sends `list`; the reply
   `There are N of a max of M players online: a, b` replaces the whole set. This
   covers loaders whose join lines differ.
@@ -195,9 +199,10 @@ New tab on the server detail page, between Console and Properties.
 Vitest, TDD.
 - `files.ts`: round-trip real vanilla file samples; unknown fields preserved;
   missing file → empty; corrupt file → flagged and edits refused.
-- `uuid.ts`: offline UUID matches a vector taken from a real offline-mode
-  server's `usercache.json` (captured during implementation, not hand-computed);
-  Mojang lookup mocked for
+- `uuid.ts`: offline UUIDs match Java's `UUID.nameUUIDFromBytes` output
+  (`Notch` → `b50ad385-829d-3141-a216-7e7d7539ba7f`, `Steve` →
+  `5627dd98-e6be-3c21-b8a8-e92344183641`, verified with a real JVM); Mojang
+  lookup mocked for
   found / 404 / network error.
 - `tracker.ts`: real join/leave lines from Vanilla, Paper, and Forge; `list`
   reply resync; a chat line `<Bob> Steve joined the game` does not add Steve;
