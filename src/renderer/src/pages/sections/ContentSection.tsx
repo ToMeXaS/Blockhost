@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   CONTENT_LABELS,
   type ContentSearchHit,
@@ -6,7 +6,18 @@ import {
   type InstalledContentList,
   type ServerView
 } from '../../../../shared/types'
-import { Button, ErrorText, inputClass } from '../../components/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  ErrorText,
+  inputClass,
+  Notice,
+  Table,
+  Td,
+  Th,
+  trClass
+} from '../../components/ui'
 import { api, errorMessage } from '../../lib/api'
 
 const SEARCH_DEBOUNCE_MS = 300
@@ -15,15 +26,6 @@ function formatDownloads(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`
   return String(n)
-}
-
-function Card({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="space-y-3 rounded-md border border-zinc-800 bg-zinc-900 p-4">
-      <h3 className="font-medium">{title}</h3>
-      {children}
-    </section>
-  )
 }
 
 export function ContentSection({ server }: { server: ServerView }) {
@@ -149,144 +151,179 @@ export function ContentSection({ server }: { server: ServerView }) {
   }
 
   return (
-    <div className="space-y-4 pb-6">
+    <div className="space-y-4">
       {restartNeeded && server.status === 'running' && (
-        <p className="rounded-md border border-amber-800 bg-amber-950/60 px-3 py-2 text-sm text-amber-200">
-          Restart the server to apply changes.
-        </p>
+        <Notice tone="warn">Restart the server to apply changes.</Notice>
       )}
       {error && <ErrorText>{error}</ErrorText>}
-      {notice && <p className="text-sm text-emerald-400">{notice}</p>}
+      {notice && <Notice tone="ok">{notice}</Notice>}
 
       <Card title={`Installed ${noun}`}>
-        {installedError && (
-          <div className="flex items-center gap-3 text-sm text-zinc-400">
-            <ErrorText>{installedError}</ErrorText>
-            <Button variant="ghost" onClick={() => void loadInstalled()}>
-              Retry
-            </Button>
-          </div>
-        )}
-        {!installed ? (
-          !installedError && <p className="text-sm text-zinc-500">Loading…</p>
-        ) : (
-          <>
-            {installed.offline && (
-              <div className="flex items-center gap-3 text-sm text-zinc-400">
-                Can&apos;t reach Modrinth — showing local files only.
-                <Button variant="ghost" onClick={() => void loadInstalled()}>
-                  Retry
-                </Button>
-              </div>
-            )}
-            {locked && (
-              <p className="text-xs text-zinc-500">Stop the server to update or remove {noun}.</p>
-            )}
-            {installed.items.length === 0 ? (
-              <p className="text-sm text-zinc-500">No {noun} installed yet.</p>
-            ) : (
-              <ul className="divide-y divide-zinc-800">
-                {installed.items.map((item) => (
-                  <li
-                    key={item.fileName}
-                    className="flex items-center justify-between gap-3 py-2 text-sm"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{item.title}</div>
-                      <div className="truncate text-xs text-zinc-500">
-                        {item.versionNumber ?? item.fileName} ·{' '}
-                        {item.source === 'modrinth' ? 'from Modrinth' : 'added manually'}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 gap-2">
-                      {item.update && (
-                        <Button
-                          disabled={locked || busy !== null}
-                          onClick={() => void update(item)}
-                          title={`Update to ${item.update.versionNumber}`}
-                        >
-                          Update
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        disabled={locked || busy !== null}
-                        onClick={() => remove(item)}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
+        <div className="space-y-3">
+          {installedError && (
+            <div className="flex items-center gap-3 text-sm text-muted">
+              <ErrorText>{installedError}</ErrorText>
+              <Button size="sm" variant="ghost" onClick={() => void loadInstalled()}>
+                Retry
+              </Button>
+            </div>
+          )}
+          {!installed ? (
+            !installedError && <p className="text-sm text-faint">Loading…</p>
+          ) : (
+            <>
+              {installed.offline && (
+                <Notice tone="warn">
+                  <div className="flex items-center gap-3">
+                    Can&apos;t reach Modrinth — showing local files only.
+                    <Button size="sm" onClick={() => void loadInstalled()}>
+                      Retry
+                    </Button>
+                  </div>
+                </Notice>
+              )}
+              {locked && (
+                <p className="text-xs text-faint">Stop the server to update or remove {noun}.</p>
+              )}
+              {installed.items.length === 0 ? (
+                <p className="text-sm text-faint">No {noun} installed yet.</p>
+              ) : (
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>Name</Th>
+                      <Th>Version</Th>
+                      <Th>Source</Th>
+                      <Th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {installed.items.map((item) => (
+                      <tr key={item.fileName} className={trClass}>
+                        <Td className="font-medium text-text">{item.title}</Td>
+                        <Td>
+                          <span className="inline-flex items-center gap-2 font-mono">
+                            {item.versionNumber ?? item.fileName}
+                            {item.update && (
+                              <Badge tone="warn" mono>
+                                → {item.update.versionNumber}
+                              </Badge>
+                            )}
+                          </span>
+                        </Td>
+                        <Td>
+                          {item.source === 'modrinth' ? (
+                            <Badge tone="accent">from Modrinth</Badge>
+                          ) : (
+                            <Badge>added manually</Badge>
+                          )}
+                        </Td>
+                        <Td>
+                          <div className="flex shrink-0 justify-end gap-2">
+                            {item.update && (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                disabled={locked || busy !== null}
+                                onClick={() => void update(item)}
+                                title={`Update to ${item.update.versionNumber}`}
+                              >
+                                Update
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              disabled={locked || busy !== null}
+                              onClick={() => remove(item)}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+            </>
+          )}
+        </div>
       </Card>
 
       <Card title={`Browse ${noun} on Modrinth`}>
-        <label className="block">
-          <span className="sr-only">Search {noun}</span>
-          <input
-            type="search"
-            className={inputClass}
-            placeholder={`Search ${noun} for ${server.mcVersion}`}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </label>
-        {searchError ? (
-          <div className="flex items-center gap-3 text-sm text-zinc-400">
-            <ErrorText>{searchError}</ErrorText>
-            <Button variant="ghost" onClick={() => void runSearch(query.trim(), 0)}>
-              Retry
-            </Button>
-          </div>
-        ) : (
-          <>
-            {!searching && hits.length === 0 && (
-              <p className="text-sm text-zinc-500">No {noun} found for this server.</p>
-            )}
-            <ul className="divide-y divide-zinc-800">
-              {hits.map((hit) => (
-                <li key={hit.projectId} className="flex items-center gap-3 py-2 text-sm">
-                  {hit.iconUrl ? (
-                    <img src={hit.iconUrl} alt="" className="h-10 w-10 shrink-0 rounded" />
-                  ) : (
-                    <div aria-hidden="true" className="h-10 w-10 shrink-0 rounded bg-zinc-800" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{hit.title}</div>
-                    <div className="truncate text-xs text-zinc-500">{hit.description}</div>
-                  </div>
-                  <span className="shrink-0 text-xs text-zinc-500">
-                    {formatDownloads(hit.downloads)} downloads
-                  </span>
-                  {hit.installed ? (
-                    <span className="shrink-0 text-xs text-emerald-400">Installed</span>
-                  ) : (
-                    <Button
-                      variant="primary"
-                      disabled={busy !== null}
-                      onClick={() => void install(hit)}
-                    >
-                      {busy === hit.projectId ? 'Installing…' : 'Install'}
-                    </Button>
-                  )}
-                </li>
-              ))}
-            </ul>
-            {searching && <p className="text-sm text-zinc-500">Searching…</p>}
-            {!searching && hits.length < total && (
-              <Button
-                variant="ghost"
-                onClick={() => void runSearch(shownQuery.current, hits.length)}
-              >
-                Load more
+        <div className="space-y-3">
+          <label className="block">
+            <span className="sr-only">Search {noun}</span>
+            <input
+              type="search"
+              className={inputClass}
+              placeholder={`Search ${noun} for ${server.mcVersion}`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
+          {searchError ? (
+            <div className="flex items-center gap-3 text-sm text-muted">
+              <ErrorText>{searchError}</ErrorText>
+              <Button size="sm" variant="ghost" onClick={() => void runSearch(query.trim(), 0)}>
+                Retry
               </Button>
-            )}
-          </>
-        )}
+            </div>
+          ) : (
+            <>
+              {!searching && hits.length === 0 && (
+                <p className="text-sm text-faint">No {noun} found for this server.</p>
+              )}
+              <ul className="divide-y divide-border-soft">
+                {hits.map((hit) => (
+                  <li key={hit.projectId} className="flex items-center gap-3 py-2">
+                    {hit.iconUrl ? (
+                      <img
+                        src={hit.iconUrl}
+                        alt=""
+                        className="h-10 w-10 shrink-0 rounded-btn bg-panel-2"
+                      />
+                    ) : (
+                      <div
+                        aria-hidden="true"
+                        className="h-10 w-10 shrink-0 rounded-btn bg-panel-2"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium text-text">{hit.title}</div>
+                      <div className="line-clamp-2 text-[13px] text-muted">{hit.description}</div>
+                    </div>
+                    <span className="shrink-0 font-mono text-xs text-faint">
+                      {formatDownloads(hit.downloads)} downloads
+                    </span>
+                    {hit.installed ? (
+                      <Badge tone="accent">Installed</Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={busy !== null}
+                        onClick={() => void install(hit)}
+                      >
+                        {busy === hit.projectId ? 'Installing…' : 'Install'}
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {searching && <p className="text-sm text-faint">Searching…</p>}
+              {!searching && hits.length < total && (
+                <Button
+                  className="w-full"
+                  onClick={() => void runSearch(shownQuery.current, hits.length)}
+                >
+                  Load more
+                </Button>
+              )}
+            </>
+          )}
+        </div>
       </Card>
     </div>
   )
