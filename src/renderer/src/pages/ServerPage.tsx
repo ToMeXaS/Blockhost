@@ -10,6 +10,7 @@ import type { Section } from '../lib/routes'
 import { ConnectSection } from './sections/ConnectSection'
 import { ConsoleSection } from './sections/ConsoleSection'
 import { ContentSection } from './sections/ContentSection'
+import { OverviewSection } from './sections/OverviewSection'
 import { PlayersSection } from './sections/PlayersSection'
 import { PropertiesSection } from './sections/PropertiesSection'
 import { SettingsSection } from './sections/SettingsSection'
@@ -27,8 +28,7 @@ interface Props {
 }
 
 export function ServerPage(props: Props) {
-  // `online`, `runningSince` and `onSection` are read by the Overview (Task 6).
-  const { server, section, onChanged, onDeleted } = props
+  const { server, section, online, runningSince, onSection, onChanged, onDeleted } = props
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [missingJava, setMissingJava] = useState<number | null>(null)
@@ -215,7 +215,12 @@ export function ServerPage(props: Props) {
           ) : (
             <>
               {section === 'overview' && (
-                <p className="text-muted">Overview is coming in the next task.</p>
+                <OverviewSection
+                  server={server}
+                  online={online}
+                  runningSince={runningSince}
+                  onSection={onSection}
+                />
               )}
               {section === 'console' && <ConsoleSection server={server} />}
               {section === 'players' && <PlayersSection server={server} />}
