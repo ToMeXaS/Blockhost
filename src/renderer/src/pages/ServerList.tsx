@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import type { ServerView } from '../../../shared/types'
-import { Button, ErrorText, StatusBadge, TypeBadge } from '../components/ui'
+import { SERVER_TYPE_LABELS, type ServerView } from '../../../shared/types'
+import { Logo, PlusIcon } from '../components/icons'
+import { Badge, Button, ErrorText, pageClass, StatusPill } from '../components/ui'
+import { useOnlinePlayers } from '../hooks/useOnlinePlayers'
 import { api, errorMessage } from '../lib/api'
 import { formatRam } from '../lib/format'
 
@@ -12,6 +14,67 @@ interface Props {
 }
 
 const isUp = (s: ServerView): boolean => s.status === 'running' || s.status === 'starting'
+
+function ServerCard({
+  server,
+  busy,
+  onOpen,
+  onToggle
+}: {
+  server: ServerView
+  busy: boolean
+  onOpen: () => void
+  onToggle: () => void
+}) {
+  const online = useOnlinePlayers(server.id, server.status)
+  const ready = server.installState === 'ready'
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onOpen()
+      }}
+      className="cursor-pointer space-y-4 rounded-card border border-border bg-panel p-5 transition-colors hover:border-border-strong"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-[15px] font-semibold">{server.name}</h2>
+          <p className="mt-0.5 font-mono text-xs text-muted">
+            {SERVER_TYPE_LABELS[server.type]} {server.mcVersion}
+          </p>
+        </div>
+        {ready ? (
+          <StatusPill status={server.status} />
+        ) : (
+          <Badge tone={server.installState === 'failed' ? 'danger' : 'warn'}>
+            {server.installState === 'installing' ? 'Installing…' : 'Install failed'}
+          </Badge>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-mono text-xs text-faint">
+          :{server.port} · {formatRam(server.ramMb)}
+          {server.status === 'running' && ` · ${online.length} online`}
+        </p>
+        {ready && (
+          <Button
+            size="sm"
+            variant={isUp(server) ? 'danger' : 'primary'}
+            disabled={busy || server.status === 'stopping'}
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggle()
+            }}
+          >
+            {isUp(server) ? 'Stop' : 'Start'}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export function ServerList({ servers, loaded, onOpen, onNew }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -31,19 +94,26 @@ export function ServerList({ servers, loaded, onOpen, onNew }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Your servers</h1>
+    <div className={`${pageClass} space-y-6`}>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-[26px] font-bold tracking-tight">Servers</h1>
+          <p className="mt-1 text-sm text-muted">
+            Every Minecraft server Blockhost runs on this PC.
+          </p>
+        </div>
         <Button variant="primary" onClick={onNew}>
-          + New server
+          <PlusIcon className="h-4 w-4" />
+          New server
         </Button>
       </div>
 
       {error && <ErrorText>{error}</ErrorText>}
 
       {loaded && servers.length === 0 && (
-        <div className="rounded-lg border border-dashed border-zinc-700 p-10 text-center text-zinc-400">
-          <p className="mb-4">No servers yet. Create one in a few clicks.</p>
+        <div className="mx-auto max-w-md space-y-4 rounded-card border border-border bg-panel p-10 text-center">
+          <Logo className="mx-auto h-10 w-10" />
+          <p className="text-sm text-muted">No servers yet. Create one in a few clicks.</p>
           <Button variant="primary" onClick={onNew}>
             Create your first server
           </Button>
@@ -52,44 +122,13 @@ export function ServerList({ servers, loaded, onOpen, onNew }: Props) {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {servers.map((server) => (
-          <div
+          <ServerCard
             key={server.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => onOpen(server.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onOpen(server.id)
-            }}
-            className="cursor-pointer space-y-3 rounded-lg border border-zinc-800 bg-zinc-900 p-4 hover:border-zinc-600"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <h2 className="truncate font-medium">{server.name}</h2>
-              <TypeBadge server={server} />
-            </div>
-            <div className="flex items-center justify-between">
-              {server.installState === 'ready' ? (
-                <StatusBadge status={server.status} />
-              ) : (
-                <span className="text-sm text-zinc-400">
-                  {server.installState === 'installing' ? 'Installing…' : 'Install failed'}
-                </span>
-              )}
-              {server.installState === 'ready' && (
-                <Button
-                  disabled={busyId === server.id || server.status === 'stopping'}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void toggle(server)
-                  }}
-                >
-                  {isUp(server) ? 'Stop' : 'Start'}
-                </Button>
-              )}
-            </div>
-            <p className="text-xs text-zinc-500">
-              Port {server.port} · {formatRam(server.ramMb)} RAM
-            </p>
-          </div>
+            server={server}
+            busy={busyId === server.id}
+            onOpen={() => onOpen(server.id)}
+            onToggle={() => void toggle(server)}
+          />
         ))}
       </div>
     </div>

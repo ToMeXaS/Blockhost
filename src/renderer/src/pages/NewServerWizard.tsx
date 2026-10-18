@@ -9,7 +9,7 @@ import {
   type VersionInfo
 } from '../../../shared/types'
 import { InstallPanel } from '../components/InstallPanel'
-import { Button, ErrorText, Field, inputClass } from '../components/ui'
+import { Button, Card, ErrorText, Field, inputClass } from '../components/ui'
 import { api, errorMessage } from '../lib/api'
 import { defaultRamMb, formatRam, maxRamMb, TYPE_BLURB } from '../lib/format'
 
@@ -184,170 +184,196 @@ export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props)
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">New server</h1>
-        <ol className="flex gap-4 text-sm">
-          {STEP_TITLES.map((title, i) => (
-            <li key={title} className={i + 1 === step ? 'text-emerald-400' : 'text-zinc-500'}>
-              {i + 1}. {title}
-            </li>
-          ))}
-        </ol>
+    <div className="mx-auto w-full max-w-[720px] space-y-6 px-8 py-7">
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-[26px] font-bold tracking-tight">New server</h1>
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
       </div>
+
+      <ol className="flex items-center gap-2 text-[13px]">
+        {STEP_TITLES.map((title, i) => {
+          const n = i + 1
+          const circleClass =
+            n === step
+              ? 'bg-accent text-accent-ink'
+              : n < step
+                ? 'bg-ok-bg text-ok-text'
+                : 'bg-panel-2 text-faint'
+          const labelClass = n <= step ? 'text-text' : 'text-faint'
+          return (
+            <li key={title} className="flex items-center gap-2">
+              {i > 0 && <span className="h-px w-8 bg-border-strong" />}
+              <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-mono text-xs ${circleClass}`}
+              >
+                {n}
+              </span>
+              <span className={labelClass}>{title}</span>
+            </li>
+          )
+        })}
+      </ol>
 
       {error && <ErrorText>{error}</ErrorText>}
 
       {step === 1 && (
-        <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-            {SERVER_TYPES.map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setType(t)}
-                className={`rounded-lg border p-3 text-left ${
-                  t === type
-                    ? 'border-emerald-500 bg-emerald-950/40'
-                    : 'border-zinc-800 bg-zinc-900 hover:border-zinc-600'
-                }`}
-              >
-                <div className="font-medium">{SERVER_TYPE_LABELS[t]}</div>
-                <div className="mt-1 text-xs text-zinc-400">{TYPE_BLURB[t]}</div>
-              </button>
-            ))}
-          </div>
-
-          <Field label="Minecraft version">
-            <select
-              className={inputClass}
-              value={version}
-              disabled={versionsLoading}
-              onChange={(e) => setVersion(e.target.value)}
-            >
-              {versionsLoading && <option value="">Loading…</option>}
-              {visibleVersions.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.id}
-                  {v.stable ? '' : ' (snapshot / beta)'}
-                </option>
+        <Card>
+          <div className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {SERVER_TYPES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={t === type}
+                  onClick={() => setType(t)}
+                  className={`rounded-btn border p-3 text-left ${
+                    t === type
+                      ? 'border-accent bg-ok-bg/40'
+                      : 'border-border-strong bg-sidebar hover:border-muted'
+                  }`}
+                >
+                  <div className="text-sm font-semibold text-text">{SERVER_TYPE_LABELS[t]}</div>
+                  <div className="mt-1 text-xs text-muted">{TYPE_BLURB[t]}</div>
+                </button>
               ))}
-            </select>
-          </Field>
-          <label className="flex items-center gap-2 text-sm text-zinc-400">
-            <input
-              type="checkbox"
-              checked={showSnapshots}
-              onChange={(e) => setShowSnapshots(e.target.checked)}
-            />
-            Show snapshots and pre-releases
-          </label>
+            </div>
 
-          {TYPES_WITH_BUILDS.includes(type) && (
-            <Field label="Build">
+            <Field label="Minecraft version">
               <select
                 className={inputClass}
-                value={build}
-                onChange={(e) => setBuild(e.target.value)}
+                value={version}
+                disabled={versionsLoading}
+                onChange={(e) => setVersion(e.target.value)}
               >
-                <option value="">Latest stable (recommended)</option>
-                {builds.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    #{b.id}
-                    {b.stable ? '' : ' (experimental)'}
+                {versionsLoading && <option value="">Loading…</option>}
+                {visibleVersions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.id}
+                    {v.stable ? '' : ' (snapshot / beta)'}
                   </option>
                 ))}
               </select>
             </Field>
-          )}
+            <label className="flex items-center gap-2 text-sm text-muted">
+              <input
+                type="checkbox"
+                className="accent-accent"
+                checked={showSnapshots}
+                onChange={(e) => setShowSnapshots(e.target.checked)}
+              />
+              Show snapshots and pre-releases
+            </label>
 
-          <div className="flex justify-end gap-2">
-            <Button onClick={onCancel}>Cancel</Button>
-            <Button variant="primary" disabled={!version} onClick={() => setStep(2)}>
-              Next
-            </Button>
+            {TYPES_WITH_BUILDS.includes(type) && (
+              <Field label="Build">
+                <select
+                  className={inputClass}
+                  value={build}
+                  onChange={(e) => setBuild(e.target.value)}
+                >
+                  <option value="">Latest stable (recommended)</option>
+                  {builds.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      #{b.id}
+                      {b.stable ? '' : ' (experimental)'}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
+            <div className="flex justify-between">
+              <Button onClick={onCancel}>Cancel</Button>
+              <Button variant="primary" disabled={!version} onClick={() => setStep(2)}>
+                Next
+              </Button>
+            </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {step === 2 && (
-        <div className="space-y-5">
-          <Field label="Server name" hint={nameError ?? undefined}>
-            <input
-              className={inputClass}
-              value={name}
-              maxLength={48}
-              onChange={(e) => {
-                setName(e.target.value)
-                setNameTouched(true)
-              }}
-            />
-          </Field>
+        <Card>
+          <div className="space-y-5">
+            <Field label="Server name" hint={nameError ?? undefined}>
+              <input
+                className={inputClass}
+                value={name}
+                maxLength={48}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  setNameTouched(true)
+                }}
+              />
+            </Field>
 
-          <Field label="Folder" hint={`Files will be stored in ${dir}`}>
-            <div className="flex gap-2">
-              <input className={inputClass} value={parentDir} readOnly />
-              <Button onClick={() => void pickFolder()}>Change…</Button>
+            <Field label="Folder" hint={`Files will be stored in ${dir}`}>
+              <div className="flex gap-2">
+                <input className={inputClass} value={parentDir} readOnly />
+                <Button onClick={() => void pickFolder()}>Change…</Button>
+              </div>
+            </Field>
+
+            <Field
+              label={`Memory: ${formatRam(ramMb)}`}
+              hint={
+                sys
+                  ? `Your PC has ${formatRam(sys.totalRamMb)} of RAM. 2–4 GB is plenty for a few friends; modpacks need 6 GB or more.`
+                  : undefined
+              }
+            >
+              <input
+                type="range"
+                className="w-full accent-accent"
+                min={1024}
+                max={sys ? maxRamMb(sys.totalRamMb) : 8192}
+                step={512}
+                value={ramMb}
+                onChange={(e) => setRamMb(Number(e.target.value))}
+              />
+            </Field>
+
+            <Field label="Port" hint={portHint}>
+              <input
+                type="number"
+                className={`${inputClass} font-mono`}
+                min={1}
+                max={65535}
+                value={port}
+                onChange={(e) => setPort(Number(e.target.value))}
+              />
+            </Field>
+
+            <label className="flex items-start gap-2 text-sm text-text-2">
+              <input
+                type="checkbox"
+                className="mt-1 accent-accent"
+                checked={eula}
+                onChange={(e) => setEula(e.target.checked)}
+              />
+              <span>
+                I accept the{' '}
+                <button
+                  type="button"
+                  className="text-link underline"
+                  onClick={() => void api.openExternal(EULA_URL)}
+                >
+                  Minecraft End User License Agreement
+                </button>
+                . Mojang requires this to run a server.
+              </span>
+            </label>
+
+            <div className="flex justify-between">
+              <Button onClick={() => setStep(1)}>Back</Button>
+              <Button variant="primary" disabled={!canCreate} onClick={() => void create()}>
+                {creating ? 'Creating…' : 'Create server'}
+              </Button>
             </div>
-          </Field>
-
-          <Field
-            label={`Memory: ${formatRam(ramMb)}`}
-            hint={
-              sys
-                ? `Your PC has ${formatRam(sys.totalRamMb)} of RAM. 2–4 GB is plenty for a few friends; modpacks need 6 GB or more.`
-                : undefined
-            }
-          >
-            <input
-              type="range"
-              className="w-full accent-emerald-500"
-              min={1024}
-              max={sys ? maxRamMb(sys.totalRamMb) : 8192}
-              step={512}
-              value={ramMb}
-              onChange={(e) => setRamMb(Number(e.target.value))}
-            />
-          </Field>
-
-          <Field label="Port" hint={portHint}>
-            <input
-              type="number"
-              className={inputClass}
-              min={1}
-              max={65535}
-              value={port}
-              onChange={(e) => setPort(Number(e.target.value))}
-            />
-          </Field>
-
-          <label className="flex items-start gap-2 text-sm text-zinc-300">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={eula}
-              onChange={(e) => setEula(e.target.checked)}
-            />
-            <span>
-              I accept the{' '}
-              <button
-                type="button"
-                className="text-emerald-400 underline"
-                onClick={() => void api.openExternal(EULA_URL)}
-              >
-                Minecraft End User License Agreement
-              </button>
-              . Mojang requires this to run a server.
-            </span>
-          </label>
-
-          <div className="flex justify-between">
-            <Button onClick={() => setStep(1)}>Back</Button>
-            <Button variant="primary" disabled={!canCreate} onClick={() => void create()}>
-              {creating ? 'Creating…' : 'Create server'}
-            </Button>
           </div>
-        </div>
+        </Card>
       )}
 
       {step === 3 && createdId && (

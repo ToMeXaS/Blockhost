@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { InstallState, InstallStep } from '../../../shared/types'
+import { Card } from './ui'
 import { api } from '../lib/api'
 
 export type PanelState = 'running' | 'done' | 'error'
@@ -64,54 +65,66 @@ export function InstallPanel({ serverId, initialState, actions }: Props) {
   const current = step ? ORDER.indexOf(step) : -1
 
   return (
-    <div className="space-y-4">
-      <ol className="space-y-2">
-        {STEPS.map((s, i) => {
-          const done = state === 'done' || current > i
-          const active = state === 'running' && current === i
-          return (
-            <li key={s.step} className="flex items-center gap-3 text-sm">
-              <span
-                className={`flex h-5 w-5 items-center justify-center rounded-full text-xs ${
-                  done
-                    ? 'bg-emerald-600 text-white'
-                    : active
-                      ? 'bg-amber-500 text-black'
-                      : 'bg-zinc-800 text-zinc-500'
-                }`}
-              >
-                {done ? '✓' : i + 1}
-              </span>
-              <span className={active ? 'text-zinc-100' : 'text-zinc-400'}>{s.label}</span>
-              {active && percent !== undefined && (
-                <span className="text-xs text-zinc-500">{percent}%</span>
-              )}
-            </li>
-          )
-        })}
-      </ol>
+    <Card>
+      <div className="space-y-4">
+        <ol className="space-y-2">
+          {STEPS.map((s, i) => {
+            const done = state === 'done' || current > i
+            const active = state === 'running' && current === i
+            const errored = state === 'error' && current === i
+            const circleClass = done
+              ? 'bg-ok-bg text-ok-text'
+              : active
+                ? 'bg-warn-bg text-warn animate-pulse'
+                : errored
+                  ? 'bg-bad-bg text-danger'
+                  : 'bg-panel-2 text-faint'
+            return (
+              <li key={s.step} className="flex items-center gap-3 text-sm">
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs ${circleClass}`}
+                >
+                  {done ? '✓' : i + 1}
+                </span>
+                <span className={active ? 'text-text' : 'text-muted'}>{s.label}</span>
+                {active && percent !== undefined && (
+                  <>
+                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel-2">
+                      <span
+                        className="block h-full rounded-full bg-accent"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </span>
+                    <span className="text-xs text-faint">{percent}%</span>
+                  </>
+                )}
+              </li>
+            )
+          })}
+        </ol>
 
-      {state === 'done' && (
-        <p className="text-sm text-emerald-400">Server installed and ready to start.</p>
-      )}
-      {state === 'error' && (
-        <p className="text-sm text-red-400">
-          Installation failed. Check the log below, then retry.
-        </p>
-      )}
+        {state === 'done' && (
+          <p className="text-sm text-ok-text">Server installed and ready to start.</p>
+        )}
+        {state === 'error' && (
+          <p className="text-sm text-danger">
+            Installation failed. Check the log below, then retry.
+          </p>
+        )}
 
-      <div
-        ref={logRef}
-        className="h-64 overflow-auto rounded-md border border-zinc-800 bg-black p-3 font-mono text-xs leading-5 text-zinc-300"
-      >
-        {lines.map((line, i) => (
-          <div key={i} className="whitespace-pre-wrap break-all">
-            {line}
-          </div>
-        ))}
+        <div
+          ref={logRef}
+          className="h-64 overflow-auto rounded-btn border border-border-soft bg-console p-3 font-mono text-xs leading-5 text-text-2"
+        >
+          {lines.map((line, i) => (
+            <div key={i} className="whitespace-pre-wrap break-all">
+              {line}
+            </div>
+          ))}
+        </div>
+
+        {actions && <div className="flex gap-2">{actions(state)}</div>}
       </div>
-
-      {actions && <div className="flex gap-2">{actions(state)}</div>}
-    </div>
+    </Card>
   )
 }
