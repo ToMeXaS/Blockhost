@@ -33,6 +33,7 @@ export function ContentTab({ server }: { server: ServerView }) {
     server.status === 'starting' || server.status === 'running' || server.status === 'stopping'
 
   const [installed, setInstalled] = useState<InstalledContentList | null>(null)
+  const [installedError, setInstalledError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<ContentSearchHit[]>([])
   const [total, setTotal] = useState(0)
@@ -43,14 +44,23 @@ export function ContentTab({ server }: { server: ServerView }) {
   const [restartNeeded, setRestartNeeded] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const searchSeq = useRef(0)
+  // The query behind the results on screen, so "Load more" never mixes in a pending one.
+  const shownQuery = useRef('')
 
-  const loadInstalled = useCallback(() => {
-    api
-      .contentInstalled(server.id)
-      .then(setInstalled)
-      .catch((err) => setError(errorMessage(err)))
+  const loadInstalled = useCallback(async (): Promise<InstalledContentList | null> => {
+    try {
+      const list = await api.contentInstalled(server.id)
+      setInstalled(list)
+      setInstalledError(null)
+      return list
+    } catch (err) {
+      setInstalledError(errorMessage(err))
+      return null
+    }
   }, [server.id])
-  useEffect(() => loadInstalled(), [loadInstalled])
+  useEffect(() => {
+    void loadInstalled()
+  }, [loadInstalled])
 
   useEffect(() => {
     if (server.status !== 'running') setRestartNeeded(false)
@@ -64,6 +74,7 @@ export function ContentTab({ server }: { server: ServerView }) {
       try {
         const r = await api.contentSearch(server.id, q, offset)
         if (seq !== searchSeq.current) return
+        if (offset === 0) shownQuery.current = q
         setHits((prev) => (offset === 0 ? r.hits : [...prev, ...r.hits]))
         setTotal(r.total)
       } catch (err) {
@@ -105,7 +116,7 @@ export function ContentTab({ server }: { server: ServerView }) {
       setHits((prev) =>
         prev.map((h) => (h.projectId === hit.projectId ? { ...h, installed: true } : h))
       )
-      loadInstalled()
+      void loadInstalled()
     })
 
   const update = (item: InstalledContent) =>
@@ -116,7 +127,7 @@ export function ContentTab({ server }: { server: ServerView }) {
           ? `Updated ${item.title} to ${r.installed[0].versionNumber}.`
           : `${item.title} is up to date.`
       )
-      loadInstalled()
+      void loadInstalled()
     })
 
   const remove = (item: InstalledContent) => {
@@ -127,10 +138,13 @@ export function ContentTab({ server }: { server: ServerView }) {
     void act(item.fileName, async () => {
       await api.contentRemove(server.id, item.fileName)
       setNotice(`Removed ${item.title}.`)
-      setHits((prev) =>
-        prev.map((h) => (h.projectId === item.projectId ? { ...h, installed: false } : h))
-      )
-      loadInstalled()
+      const list = await loadInstalled()
+      // Another jar from the same project (e.g. a second copy) may still be installed.
+      if (list && !list.items.some((i) => i.projectId === item.projectId)) {
+        setHits((prev) =>
+          prev.map((h) => (h.projectId === item.projectId ? { ...h, installed: false } : h))
+        )
+      }
     })
   }
 
@@ -145,14 +159,22 @@ export function ContentTab({ server }: { server: ServerView }) {
       {notice && <p className="text-sm text-emerald-400">{notice}</p>}
 
       <Card title={`Installed ${noun}`}>
+        {installedError && (
+          <div className="flex items-center gap-3 text-sm text-zinc-400">
+            <ErrorText>{installedError}</ErrorText>
+            <Button variant="ghost" onClick={() => void loadInstalled()}>
+              Retry
+            </Button>
+          </div>
+        )}
         {!installed ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          !installedError && <p className="text-sm text-zinc-500">Loading…</p>
         ) : (
           <>
             {installed.offline && (
               <div className="flex items-center gap-3 text-sm text-zinc-400">
                 Can&apos;t reach Modrinth — showing local files only.
-                <Button variant="ghost" onClick={loadInstalled}>
+                <Button variant="ghost" onClick={() => void loadInstalled()}>
                   Retry
                 </Button>
               </div>
@@ -256,7 +278,10 @@ export function ContentTab({ server }: { server: ServerView }) {
             </ul>
             {searching && <p className="text-sm text-zinc-500">Searching…</p>}
             {!searching && hits.length < total && (
-              <Button variant="ghost" onClick={() => void runSearch(query.trim(), hits.length)}>
+              <Button
+                variant="ghost"
+                onClick={() => void runSearch(shownQuery.current, hits.length)}
+              >
                 Load more
               </Button>
             )}
