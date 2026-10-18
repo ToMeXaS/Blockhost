@@ -37,6 +37,7 @@ export function tunnelName(serverName: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 30)
+    .trim()
 }
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err))

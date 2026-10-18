@@ -108,6 +108,9 @@ describe('tunnelName', () => {
     expect(tunnelName('Survival')).toBe('Blockhost Survival')
     expect(tunnelName('Überwelt ✨')).toBe('Blockhost berwelt')
     expect(tunnelName('A very long server name indeed')).toHaveLength(30)
+    const cut = tunnelName('Survival worlds two and more')
+    expect(cut).toBe('Blockhost Survival worlds two')
+    expect(cut.endsWith(' ')).toBe(false)
   })
 })
 
