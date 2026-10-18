@@ -1,6 +1,7 @@
 import { AppError } from '../errors'
 
 export const PLAYIT_API_BASE = 'https://api.playit.gg'
+export const PLAYIT_API_TIMEOUT_MS = 15_000
 /** Version text sent when claiming; playit rejects long values. */
 const CLAIM_VERSION = 'blockhost'
 
@@ -97,19 +98,25 @@ const refused = (what: string, reason: string): AppError =>
 
 export function createPlayitApi(
   fetchImpl: typeof fetch = fetch,
-  base: string = PLAYIT_API_BASE
+  base: string = PLAYIT_API_BASE,
+  timeoutMs: number = PLAYIT_API_TIMEOUT_MS
 ): PlayitApi {
+  const timedOut = (): AppError => new AppError('NETWORK', 'playit.gg did not respond in time.')
+
   async function call<T>(path: string, body: unknown, secret?: string): Promise<Outcome<T>> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (secret) headers.Authorization = `Agent-Key ${secret.trim()}`
+    const signal = AbortSignal.timeout(timeoutMs)
     let res: Response
     try {
       res = await fetchImpl(`${base}${path}`, {
         method: 'POST',
         headers,
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal
       })
     } catch (err) {
+      if (signal.aborted) throw timedOut()
       throw new AppError('NETWORK', `Could not reach playit.gg: ${(err as Error).message}`)
     }
     if (res.status === 429) {
@@ -122,6 +129,7 @@ export function createPlayitApi(
     try {
       envelope = (await res.json()) as Envelope
     } catch {
+      if (signal.aborted) throw timedOut()
       if (res.status === 401) {
         throw new AppError(
           'PLAYIT_UNAUTHORIZED',

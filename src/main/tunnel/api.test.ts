@@ -130,6 +130,24 @@ describe('rundata', () => {
     })
   })
 
+  it('gives up when playit.gg does not respond in time', async () => {
+    let signal: AbortSignal | undefined
+    const hanging = createPlayitApi(
+      ((_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          signal = init.signal ?? undefined
+          signal?.addEventListener('abort', () => reject(signal!.reason))
+        })) as unknown as typeof fetch,
+      'https://api.test',
+      20
+    )
+    await expect(hanging.rundata('s')).rejects.toMatchObject({
+      code: 'NETWORK',
+      message: 'playit.gg did not respond in time.'
+    })
+    expect(signal?.aborted).toBe(true)
+  })
+
   it('maps bare 401/403 responses to auth errors', async () => {
     const api401 = createPlayitApi(
       (async () => new Response('<html>', { status: 401 })) as unknown as typeof fetch,
@@ -170,7 +188,10 @@ describe('rundata', () => {
   })
 
   it('prefers well-formed envelope error codes over HTTP status codes', async () => {
-    const { api } = fakeFetch({ status: 401, body: { status: 'error', data: { type: 'auth', message: 'ScopeNotAllowed' } } })
+    const { api } = fakeFetch({
+      status: 401,
+      body: { status: 'error', data: { type: 'auth', message: 'ScopeNotAllowed' } }
+    })
     await expect(api.rundata('s')).rejects.toMatchObject({ code: 'PLAYIT_FORBIDDEN' })
   })
 })
