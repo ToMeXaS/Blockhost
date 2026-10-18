@@ -1,7 +1,20 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { NetInfo, ServerView, TunnelStatus } from '../../../../shared/types'
-import { Button, ErrorText } from '../../components/ui'
+import type { NetInfo, ServerView, TunnelState, TunnelStatus } from '../../../../shared/types'
+import { Badge, Button, Card, ErrorText, Notice, Switch } from '../../components/ui'
+import { CopyIcon } from '../../components/icons'
 import { api, ApiCallError, errorMessage } from '../../lib/api'
+
+const TUNNEL_BADGE: Record<
+  TunnelState,
+  { tone: 'accent' | 'warn' | 'danger' | 'neutral'; label: string }
+> = {
+  off: { tone: 'neutral', label: 'Off' },
+  downloading: { tone: 'warn', label: 'Downloading' },
+  connecting: { tone: 'warn', label: 'Connecting' },
+  online: { tone: 'accent', label: 'Online' },
+  'needs-setup': { tone: 'danger', label: 'Needs setup' },
+  error: { tone: 'danger', label: 'Error' }
+}
 
 function AddressRow({
   address,
@@ -14,8 +27,11 @@ function AddressRow({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <code className="rounded bg-zinc-900 px-3 py-1.5 font-mono text-sm">{address}</code>
-      <Button variant="ghost" onClick={onCopy}>
+      <code className="rounded-btn border border-border-soft bg-sidebar px-3 py-2 font-mono text-sm text-text">
+        {address}
+      </code>
+      <Button size="sm" onClick={onCopy}>
+        <CopyIcon className="h-3.5 w-3.5" />
         {copied ? 'Copied!' : 'Copy'}
       </Button>
     </div>
@@ -109,110 +125,123 @@ function TunnelCard({
     })
 
   return (
-    <section className="space-y-3 rounded-md border border-zinc-800 bg-zinc-900 p-4">
-      <div>
-        <h3 className="font-medium">Share over the internet (playit.gg)</h3>
-        <p className="text-sm text-zinc-400">
-          Friends can join without port forwarding. Uses a free playit.gg account.
-        </p>
-      </div>
-      {error && <ErrorText>{error}</ErrorText>}
+    <Card
+      title="Share over the internet (playit.gg)"
+      description="Friends can join without port forwarding. Uses a free playit.gg account."
+    >
+      <div className="space-y-3">
+        {error && <ErrorText>{error}</ErrorText>}
 
-      {linked === null ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
-      ) : !linked ? (
-        linking ? (
-          <div className="flex items-center gap-3">
-            <p className="text-sm text-zinc-300">Waiting for you to accept in the browser…</p>
-            <Button variant="ghost" onClick={() => void api.tunnelCancelLink().catch(() => {})}>
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {status?.state === 'error' && status.message && <ErrorText>{status.message}</ErrorText>}
-            <Button variant="primary" disabled={busy} onClick={() => void link()}>
-              Link playit.gg account
-            </Button>
-          </div>
-        )
-      ) : (
-        <>
-          <label className="flex items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              role="switch"
-              className="h-4 w-4 accent-emerald-500"
-              checked={shared}
-              disabled={busy}
-              onChange={(e) => void toggle(e.target.checked)}
-            />
-            Share this server
-          </label>
-
-          {status && shared && (
-            <div className="space-y-2 text-sm">
-              {status.state === 'off' &&
-                (status.address ? (
-                  <div className="space-y-1 opacity-60">
-                    {addressRow(status.address)}
-                    <p className="text-xs text-zinc-500">Available while the server is running.</p>
-                  </div>
-                ) : (
-                  <p className="text-zinc-500">Starts when the server starts.</p>
-                ))}
-              {status.state === 'downloading' && (
-                <p className="text-zinc-300">
-                  Downloading the playit agent…
-                  {status.percent !== undefined ? ` ${status.percent}%` : ''}
-                </p>
-              )}
-              {status.state === 'connecting' && (
-                <p className="text-zinc-300">Connecting to playit.gg…</p>
-              )}
-              {status.state === 'online' && status.address && (
-                <div className="space-y-1">
-                  {addressRow(status.address)}
-                  <p className="text-xs text-zinc-500">Share this address with your friends.</p>
-                </div>
-              )}
-              {status.state === 'needs-setup' && (
-                <div className="space-y-2 text-zinc-300">
-                  <p>
-                    Create a Minecraft Java tunnel on playit.gg pointing to{' '}
-                    <code className="rounded bg-zinc-950 px-1.5 py-0.5">{status.localAddress}</code>
-                    . Blockhost picks it up automatically.
-                  </p>
-                  <Button
-                    onClick={() => void api.openExternal('https://playit.gg/account/tunnels')}
-                  >
-                    Open playit.gg
-                  </Button>
-                </div>
-              )}
-              {status.state === 'error' && (
-                <div className="space-y-2">
-                  <ErrorText>{status.message ?? 'Sharing failed.'}</ErrorText>
-                  <Button disabled={busy} onClick={() => void retry()}>
-                    Retry
-                  </Button>
-                </div>
-              )}
+        {linked === null ? (
+          <p className="text-sm text-faint">Loading…</p>
+        ) : !linked ? (
+          linking ? (
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-text-2">Waiting for you to accept in the browser…</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void api.tunnelCancelLink().catch(() => {})}
+              >
+                Cancel
+              </Button>
             </div>
-          )}
-          {!shared && <p className="text-sm text-zinc-500">Not shared.</p>}
+          ) : (
+            <div className="space-y-2">
+              {status?.state === 'error' && status.message && (
+                <ErrorText>{status.message}</ErrorText>
+              )}
+              <Button variant="primary" disabled={busy} onClick={() => void link()}>
+                Link playit.gg account
+              </Button>
+            </div>
+          )
+        ) : (
+          <>
+            <Switch
+              checked={shared}
+              onChange={(checked) => void toggle(checked)}
+              disabled={busy}
+              label="Share this server"
+            />
 
-          <button
-            type="button"
-            className="text-xs text-zinc-500 underline hover:text-zinc-300 disabled:opacity-50"
-            disabled={busy}
-            onClick={() => void unlink()}
-          >
-            Unlink playit.gg
-          </button>
-        </>
-      )}
-    </section>
+            {status && shared && (
+              <div className="space-y-2 text-sm">
+                <Badge tone={TUNNEL_BADGE[status.state].tone}>
+                  {TUNNEL_BADGE[status.state].label}
+                </Badge>
+                {status.state === 'off' &&
+                  (status.address ? (
+                    <div className="space-y-1 opacity-60">
+                      {addressRow(status.address)}
+                      <p className="text-xs text-faint">Available while the server is running.</p>
+                    </div>
+                  ) : (
+                    <p className="text-faint">Starts when the server starts.</p>
+                  ))}
+                {status.state === 'downloading' && (
+                  <div className="space-y-1.5">
+                    <p className="text-text-2">
+                      Downloading the playit agent…
+                      {status.percent !== undefined ? ` ${status.percent}%` : ''}
+                    </p>
+                    {status.percent !== undefined && (
+                      <div className="h-1.5 rounded-full bg-panel-2">
+                        <div
+                          className="h-full rounded-full bg-accent"
+                          style={{ width: `${status.percent}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+                {status.state === 'connecting' && (
+                  <p className="text-text-2">Connecting to playit.gg…</p>
+                )}
+                {status.state === 'online' && status.address && (
+                  <div className="space-y-1">
+                    {addressRow(status.address)}
+                    <p className="text-xs text-faint">Share this address with your friends.</p>
+                  </div>
+                )}
+                {status.state === 'needs-setup' && (
+                  <Notice tone="info">
+                    <div className="space-y-2">
+                      <p>
+                        Create a Minecraft Java tunnel on playit.gg pointing to{' '}
+                        <code className="rounded-btn bg-panel-2 px-1.5 py-0.5 font-mono">
+                          {status.localAddress}
+                        </code>
+                        . Blockhost picks it up automatically.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={() => void api.openExternal('https://playit.gg/account/tunnels')}
+                      >
+                        Open playit.gg
+                      </Button>
+                    </div>
+                  </Notice>
+                )}
+                {status.state === 'error' && (
+                  <div className="space-y-2">
+                    <ErrorText>{status.message ?? 'Sharing failed.'}</ErrorText>
+                    <Button disabled={busy} onClick={() => void retry()}>
+                      Retry
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            {!shared && <p className="text-sm text-faint">Not shared.</p>}
+
+            <Button variant="danger" size="sm" disabled={busy} onClick={() => void unlink()}>
+              Unlink playit.gg
+            </Button>
+          </>
+        )}
+      </div>
+    </Card>
   )
 }
 
@@ -250,58 +279,61 @@ export function ConnectSection({
   )
 
   return (
-    <div className="max-w-2xl space-y-6 pb-6">
+    <div className="space-y-4 pb-6">
       {error && <ErrorText>{error}</ErrorText>}
 
       <TunnelCard server={server} onChanged={onChanged} addressRow={row} />
 
-      <section className="space-y-2">
-        <h3 className="font-medium">On this PC</h3>
-        {row(`localhost:${server.port}`)}
-      </section>
+      <Card title="On this PC">
+        <div className="space-y-2">{row(`localhost:${server.port}`)}</div>
+      </Card>
 
-      <section className="space-y-2">
-        <h3 className="font-medium">Same Wi-Fi or home network</h3>
-        {info ? (
-          info.lanIps.length ? (
-            info.lanIps.map((ip) => row(`${ip}:${server.port}`))
+      <Card title="Same Wi-Fi or home network">
+        <div className="space-y-2">
+          {info ? (
+            info.lanIps.length ? (
+              info.lanIps.map((ip) => row(`${ip}:${server.port}`))
+            ) : (
+              <p className="text-sm text-faint">No network connection found.</p>
+            )
           ) : (
-            <p className="text-sm text-zinc-500">No network connection found.</p>
-          )
-        ) : (
-          <p className="text-sm text-zinc-500">Loading…</p>
-        )}
-      </section>
+            <p className="text-sm text-faint">Loading…</p>
+          )}
+        </div>
+      </Card>
 
       <details className="space-y-4">
-        <summary className="cursor-pointer text-sm font-medium text-zinc-300">
+        <summary className="cursor-pointer text-sm font-medium text-text-2">
           Or forward a port yourself
         </summary>
 
-        <section className="space-y-2">
-          <h3 className="font-medium">Over the internet</h3>
-          {info ? (
-            info.publicIp ? (
-              row(`${info.publicIp}:${server.port}`)
+        <Card title="Over the internet" className="mt-4">
+          <div className="space-y-2">
+            {info ? (
+              info.publicIp ? (
+                row(`${info.publicIp}:${server.port}`)
+              ) : (
+                <p className="text-sm text-faint">Could not detect your public IP address.</p>
+              )
             ) : (
-              <p className="text-sm text-zinc-500">Could not detect your public IP address.</p>
-            )
-          ) : (
-            <p className="text-sm text-zinc-500">Loading…</p>
-          )}
-          <p className="text-xs text-zinc-500">
-            This only works after you forward the port on your router (see below).
-          </p>
-        </section>
+              <p className="text-sm text-faint">Loading…</p>
+            )}
+            <p className="text-xs text-faint">
+              This only works after you forward the port on your router (see below).
+            </p>
+          </div>
+        </Card>
 
-        <details className="rounded-md border border-zinc-800 bg-zinc-900 p-4 text-sm text-zinc-300">
-          <summary className="cursor-pointer font-medium">
+        <details className="mt-4 rounded-card border border-border bg-panel p-4 text-sm text-text-2">
+          <summary className="cursor-pointer font-medium text-text">
             How to let friends join over the internet
           </summary>
           <ol className="mt-3 list-decimal space-y-2 pl-5">
             <li>
-              Open your router&apos;s admin page. It is often <code>192.168.0.1</code> or{' '}
-              <code>192.168.1.1</code>, and the address is usually printed on the router.
+              Open your router&apos;s admin page. It is often{' '}
+              <code className="font-mono">192.168.0.1</code> or{' '}
+              <code className="font-mono">192.168.1.1</code>, and the address is usually printed on
+              the router.
             </li>
             <li>
               Find the <b>Port Forwarding</b> section (sometimes called NAT or Virtual Server).
@@ -317,7 +349,7 @@ export function ConnectSection({
             </li>
             <li>Share the internet address above with your friends.</li>
           </ol>
-          <p className="mt-3 text-xs text-zinc-500">
+          <p className="mt-3 text-xs text-faint">
             Some internet providers use CGNAT, which blocks port forwarding. If it still does not
             work, ask your provider for a public IP address.
           </p>
