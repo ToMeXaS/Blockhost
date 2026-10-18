@@ -139,7 +139,7 @@ src/main/tunnel/
 ### 4.4 `agent.ts` — `AgentProcess`
 
 - Spawn `playitd.exe --secret-path <toml> --socket-path
-\\.\pipe\blockhost-playitd -l <dataDir>/playit/playitd.log`, windowsHide,
+\\.\pipe\blockhost-playitd` (no `-l`, so logs arrive on stderr), windowsHide,
   stdout/stderr piped.
 - Status from output lines: `playit connected; tunnels loaded` → connected;
   a line containing `Could not connect to playit tunnel servers` or `rejected
