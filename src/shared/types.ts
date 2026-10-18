@@ -40,6 +40,7 @@ export interface ServerRecord {
   launch?: LaunchSpec
   installState: InstallState
   createdAt: string
+  tunnel?: ServerTunnel
 }
 
 export interface ServerView extends ServerRecord {
@@ -180,4 +181,27 @@ export type PlayerAction = {
 
 export interface PlayersChangedEvent {
   serverId: string
+}
+
+export interface ServerTunnel {
+  enabled: boolean
+  tunnelId?: string
+  address?: string
+}
+
+export type TunnelState = 'off' | 'downloading' | 'connecting' | 'online' | 'needs-setup' | 'error'
+
+export interface TunnelStatus {
+  serverId: string
+  state: TunnelState
+  /** Public address, kept from the last time playit reported it. */
+  address?: string
+  /** Where the tunnel must point, e.g. 127.0.0.1:25565. */
+  localAddress: string
+  message?: string
+  percent?: number
+}
+
+export interface PlayitAccountStatus {
+  linked: boolean
 }
