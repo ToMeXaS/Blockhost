@@ -98,9 +98,13 @@ stripping):
 - Anchoring on the full logger prefix (rather than any `: `) prevents chat
   spoofing, since chat lines continue `<name> message` after the prefix and a
   message like `hi: Steve joined the game` cannot match.
-- Resync: when the `Done (…)!` line is seen, the tracker sends `list`; the reply
-  `There are N of a max of M players online: a, b` replaces the whole set. This
-  covers loaders whose join lines differ.
+- Resync: nobody is online right at `Done (…)!`, so resyncing then never
+  helps, and some plugins (e.g. EssentialsX) suppress the join/leave log lines
+  the tracker otherwise relies on. Instead, `PlayerService.getPlayers` sends
+  `list` for a running server whenever something looks at the tab, throttled
+  to at most once per 30 s per server; the reply `There are N of a max of M
+  players online: a, b` replaces the whole set. This covers loaders whose
+  join lines differ or are suppressed.
 - Cleared when the server stops or crashes.
 - Emits a change notification whenever the set changes.
 

@@ -39,6 +39,7 @@ export const defaultWatch: WatchFn = (dir, onChange) => {
 
 const WATCHED_FILES = new Set([...Object.values(LIST_FILES), 'server.properties'])
 const DEFAULT_BAN_REASON = 'Banned by an operator.'
+const LIST_RESYNC_THROTTLE_MS = 30_000
 
 type FileAction = Exclude<PlayerAction, { type: 'kick' | 'setWhitelistEnabled' }>
 
@@ -97,6 +98,7 @@ export class PlayerService {
   private readonly watchers = new Map<string, { close(): void }>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly queues = new Map<string, Promise<unknown>>()
+  private readonly lastListSentAt = new Map<string, number>()
 
   constructor(deps: PlayerServiceDeps) {
     this.deps = deps
@@ -105,6 +107,7 @@ export class PlayerService {
 
   async getPlayers(serverId: string): Promise<PlayerLists> {
     const { dir } = this.deps.store.get(serverId)
+    if (this.deps.processes.status(serverId) === 'running') this.maybeResyncList(serverId)
     const [ops, whitelist, bannedPlayers, bannedIps, props] = await Promise.all([
       readList(dir, 'ops'),
       readList(dir, 'whitelist'),
@@ -188,16 +191,10 @@ export class PlayerService {
   onStatus(event: ServerStatusEvent): void {
     const { serverId, status } = event
     if (status === 'starting' || status === 'running') this.startWatching(serverId)
-    if (status === 'running') {
-      try {
-        this.deps.processes.sendCommand(serverId, 'list')
-      } catch {
-        // The server exited between the status change and now; nothing to resync.
-      }
-    }
     if (status === 'stopped' || status === 'crashed') {
       this.stopWatching(serverId)
       this.tracker.reset(serverId)
+      this.lastListSentAt.delete(serverId)
     }
   }
 
@@ -273,6 +270,24 @@ export class PlayerService {
       source: 'Blockhost',
       expires: 'forever',
       reason: reason?.trim() || DEFAULT_BAN_REASON
+    }
+  }
+
+  /**
+   * Nobody is online right after `Done (…)!`, so resyncing then never helps,
+   * and some plugins (e.g. EssentialsX) suppress the join/leave log lines the
+   * tracker otherwise relies on. Resync instead whenever someone looks at the
+   * tab, throttled so repeated refreshes don't spam the console.
+   */
+  private maybeResyncList(serverId: string): void {
+    const now = (this.deps.now?.() ?? new Date()).getTime()
+    const last = this.lastListSentAt.get(serverId) ?? 0
+    if (now - last < LIST_RESYNC_THROTTLE_MS) return
+    this.lastListSentAt.set(serverId, now)
+    try {
+      this.deps.processes.sendCommand(serverId, 'list')
+    } catch {
+      // The server exited between the status check and now; nothing to resync.
     }
   }
 

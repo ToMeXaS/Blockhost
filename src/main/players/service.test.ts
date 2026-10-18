@@ -225,13 +225,44 @@ describe('PlayerService while stopped', () => {
 })
 
 describe('PlayerService events', () => {
-  it('resyncs with `list` once running and tracks log lines', async () => {
-    const { service, processes, emit } = await setup('running')
-    service.onStatus({ serverId: ID, status: 'running' })
-    expect(processes.sendCommand).toHaveBeenCalledWith(ID, 'list')
+  it('tracks log lines while running', async () => {
+    const { service, emit } = await setup('running')
     service.onLog({ serverId: ID, lines: ['[14:03:00 INFO]: Steve joined the game'] })
     expect(emit).toHaveBeenCalledWith({ serverId: ID })
     expect((await service.getPlayers(ID)).online).toEqual(['Steve'])
+  })
+
+  it('resyncs with `list` when a caller looks at a running server, throttled to once per 30s', async () => {
+    const dir = join(await tempDir(), 'srv')
+    await mkdir(dir)
+    const rec = { id: ID, dir } as ServerRecord
+    const processes = { status: vi.fn((): ServerStatus => 'running'), sendCommand: vi.fn() }
+    let now = NOW
+    const service = new PlayerService({
+      store: { get: () => rec },
+      processes,
+      lookup: vi.fn(),
+      watch: () => ({ close: vi.fn() }),
+      emit: vi.fn(),
+      now: () => now
+    })
+
+    await service.getPlayers(ID)
+    expect(processes.sendCommand).toHaveBeenCalledTimes(1)
+    expect(processes.sendCommand).toHaveBeenCalledWith(ID, 'list')
+
+    await service.getPlayers(ID)
+    expect(processes.sendCommand).toHaveBeenCalledTimes(1) // still within the 30s window
+
+    now = new Date(now.getTime() + 30_000)
+    await service.getPlayers(ID)
+    expect(processes.sendCommand).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not resync `list` when a caller looks at a server that is not running', async () => {
+    const { service, processes } = await setup('stopped')
+    await service.getPlayers(ID)
+    expect(processes.sendCommand).not.toHaveBeenCalled()
   })
 
   it('reports no one online unless running', async () => {
@@ -280,6 +311,6 @@ describe('PlayerService events', () => {
     processes.sendCommand.mockImplementation(() => {
       throw new AppError('NOT_RUNNING', 'The server is not running')
     })
-    expect(() => service.onStatus({ serverId: ID, status: 'running' })).not.toThrow()
+    await expect(service.getPlayers(ID)).resolves.toBeDefined()
   })
 })
