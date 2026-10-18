@@ -205,3 +205,52 @@ export interface TunnelStatus {
 export interface PlayitAccountStatus {
   linked: boolean
 }
+
+export type ContentLabel = 'Mods' | 'Plugins'
+
+/** Which content tab a server type gets (null = none). */
+export const CONTENT_LABELS: Record<ServerType, ContentLabel | null> = {
+  vanilla: null,
+  paper: 'Plugins',
+  purpur: 'Plugins',
+  fabric: 'Mods',
+  forge: 'Mods',
+  neoforge: 'Mods'
+}
+
+export interface ContentSearchHit {
+  projectId: string
+  slug: string
+  title: string
+  description: string
+  iconUrl: string | null
+  downloads: number
+  installed: boolean
+}
+
+export interface ContentSearchResult {
+  hits: ContentSearchHit[]
+  total: number
+}
+
+export interface InstalledContent {
+  fileName: string
+  title: string
+  versionNumber: string | null
+  source: 'modrinth' | 'manual'
+  projectId?: string
+  update?: { versionId: string; versionNumber: string }
+  /** Titles of installed content that pulled this in as a dependency. */
+  neededBy: string[]
+}
+
+export interface InstalledContentList {
+  items: InstalledContent[]
+  /** True when Modrinth could not be reached; items are local files only. */
+  offline: boolean
+}
+
+export interface ContentInstallResult {
+  installed: { title: string; versionNumber: string; asDependency: boolean }[]
+  restartNeeded: boolean
+}
