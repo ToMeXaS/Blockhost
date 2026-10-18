@@ -3,6 +3,8 @@ import type {
   ApiError,
   CreateServerInput,
   NetInfo,
+  PlayerAction,
+  PlayerLists,
   PropertyEntry,
   ServerPatch,
   ServerType,
@@ -54,6 +56,9 @@ export const api = {
   writeProperties: (id: string, entries: PropertyEntry[]) =>
     call<void>('servers:writeProperties', id, entries),
   openFolder: (id: string) => call<void>('servers:openFolder', id),
+  getPlayers: (id: string) => call<PlayerLists>('players:get', id),
+  playerAction: (id: string, action: PlayerAction) =>
+    call<PlayerLists>('players:action', id, action),
 
   installJava: (major: number) => call<void>('java:install', major),
   systemInfo: () => call<SystemInfo>('system:info'),

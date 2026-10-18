@@ -11,6 +11,8 @@ import { runJava } from './java/run'
 import { downloadFile } from './net/download'
 import { createHttpClient, type HttpClient } from './net/http'
 import { isPortFree } from './net/port'
+import { defaultWatch, PlayerService } from './players/service'
+import { lookupPlayer } from './players/uuid'
 import { createProviders } from './providers'
 import type { ServerProvider } from './providers/types'
 import { createMojangJavaLookup } from './providers/vanilla'
@@ -29,6 +31,7 @@ export interface Services {
   installer: ServerInstaller
   processes: ProcessManager
   servers: ServerService
+  players: PlayerService
 }
 
 export async function createServices(opts: {
@@ -64,8 +67,21 @@ export async function createServices(opts: {
   const processes = new ProcessManager({
     spawn: defaultSpawn,
     kill: killTree,
-    onStatus: (event) => send('server:status', event),
-    onLog: (event) => send('server:log', event)
+    onStatus: (event) => {
+      send('server:status', event)
+      players.onStatus(event)
+    },
+    onLog: (event) => {
+      send('server:log', event)
+      players.onLog(event)
+    }
+  })
+  const players = new PlayerService({
+    store,
+    processes,
+    lookup: (name, onlineMode) => lookupPlayer(http, name, onlineMode),
+    watch: defaultWatch,
+    emit: (event) => send('players:changed', event)
   })
   const servers = new ServerService({
     store,
@@ -83,6 +99,7 @@ export async function createServices(opts: {
     javaManager,
     installer,
     processes,
-    servers
+    servers,
+    players
   }
 }

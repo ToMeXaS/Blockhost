@@ -1,5 +1,6 @@
 import type {
   InstallProgress,
+  PlayersChangedEvent,
   Result,
   ServerLogEvent,
   ServerStatusEvent,
@@ -24,6 +25,8 @@ export const INVOKE_CHANNELS = [
   'servers:readProperties',
   'servers:writeProperties',
   'servers:openFolder',
+  'players:get',
+  'players:action',
   'java:install',
   'system:info',
   'system:netInfo',
@@ -39,6 +42,7 @@ export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]
 export const EVENT_CHANNELS = [
   'server:status',
   'server:log',
+  'players:changed',
   'install:progress',
   'net:offline',
   'update:status'
@@ -48,6 +52,7 @@ export type EventChannel = (typeof EVENT_CHANNELS)[number]
 export interface EventPayloads {
   'server:status': ServerStatusEvent
   'server:log': ServerLogEvent
+  'players:changed': PlayersChangedEvent
   'install:progress': InstallProgress
   'net:offline': { url: string }
   'update:status': UpdateStatus

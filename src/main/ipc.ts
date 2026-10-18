@@ -12,6 +12,7 @@ import {
   httpsUrlSchema,
   idSchema,
   javaMajorSchema,
+  playerActionSchema,
   portSchema,
   propertyEntriesSchema,
   serverPatchSchema,
@@ -40,7 +41,7 @@ export function registerIpc(
   getWindow: () => BrowserWindow | null,
   updates: { status(): UpdateStatus; requestInstall(): void }
 ): void {
-  const { servers, installer, providers, javaManager, http, paths } = services
+  const { servers, installer, providers, javaManager, http, paths, players } = services
 
   const openDialog = async (options: OpenDialogOptions): Promise<string | null> => {
     const win = getWindow()
@@ -85,6 +86,11 @@ export function registerIpc(
     const error = await shell.openPath(servers.dir(id))
     if (error) throw new AppError('OPEN_FAILED', error)
   })
+
+  handle('players:get', z.tuple([idSchema]), (id) => players.getPlayers(id))
+  handle('players:action', z.tuple([idSchema, playerActionSchema]), (id, action) =>
+    players.action(id, action)
+  )
 
   handle('java:install', z.tuple([javaMajorSchema]), async (major) => {
     await javaManager.ensure(major)
