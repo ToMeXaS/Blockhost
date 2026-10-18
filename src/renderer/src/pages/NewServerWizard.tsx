@@ -187,9 +187,11 @@ export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props)
     <div className="mx-auto w-full max-w-[720px] space-y-6 px-8 py-7">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-[26px] font-bold tracking-tight">New server</h1>
-        <Button variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
+        {step === 1 && (
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
       </div>
 
       <ol className="flex items-center gap-2 text-[13px]">
