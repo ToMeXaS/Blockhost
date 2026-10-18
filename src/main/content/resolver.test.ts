@@ -231,10 +231,7 @@ describe('planInstall', () => {
   })
 
   it('reports an unavailable version-only dependency instead of dropping it', async () => {
-    const c = ctx(
-      [SODIUM],
-      [version('s1', SODIUM.id, { deps: [req(null, 'missing-version')] })]
-    )
+    const c = ctx([SODIUM], [version('s1', SODIUM.id, { deps: [req(null, 'missing-version')] })])
     await expect(planInstall('sodium', c)).rejects.toMatchObject({
       code: 'CONTENT_DEPENDENCY_UNAVAILABLE',
       message: 'Sodium needs a dependency that is no longer on Modrinth.'
