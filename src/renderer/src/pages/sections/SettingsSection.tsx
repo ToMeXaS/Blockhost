@@ -10,7 +10,7 @@ interface Props {
   onDeleted: () => void
 }
 
-export function SettingsTab({ server, onChanged, onDeleted }: Props) {
+export function SettingsSection({ server, onChanged, onDeleted }: Props) {
   const [sys, setSys] = useState<SystemInfo | null>(null)
   const [ramMb, setRamMb] = useState(server.ramMb)
   const [jvmArgs, setJvmArgs] = useState(server.jvmArgs.join(' '))

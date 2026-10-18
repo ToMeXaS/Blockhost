@@ -26,7 +26,7 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-export function ContentTab({ server }: { server: ServerView }) {
+export function ContentSection({ server }: { server: ServerView }) {
   const label = CONTENT_LABELS[server.type] ?? 'Mods'
   const noun = label === 'Plugins' ? 'plugins' : 'mods'
   const locked =

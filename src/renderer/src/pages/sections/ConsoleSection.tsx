@@ -22,7 +22,7 @@ const LogLine = memo(function LogLine({ text }: { text: string }) {
   return <div className={`whitespace-pre-wrap break-all ${lineClass(text)}`}>{text}</div>
 })
 
-export function ConsoleTab({ server }: { server: ServerView }) {
+export function ConsoleSection({ server }: { server: ServerView }) {
   const [lines, setLines] = useState<Line[]>([])
   const [command, setCommand] = useState('')
   const [error, setError] = useState<string | null>(null)

@@ -42,7 +42,7 @@ export function UpdateBanner() {
 
   if (status.state === 'available') {
     return (
-      <div className="border-b border-emerald-900 bg-emerald-950/60 px-6 py-2 text-sm text-emerald-200">
+      <div className="space-y-2 rounded-btn border border-ok-border bg-ok-bg px-3 py-2.5 text-xs text-ok-text">
         Update v{status.version} found, downloading…
       </div>
     )
@@ -50,7 +50,7 @@ export function UpdateBanner() {
 
   if (status.state === 'downloading') {
     return (
-      <div className="border-b border-emerald-900 bg-emerald-950/60 px-6 py-2 text-sm text-emerald-200">
+      <div className="space-y-2 rounded-btn border border-ok-border bg-ok-bg px-3 py-2.5 text-xs text-ok-text">
         Downloading update v{status.version}… {status.percent ?? 0}%
       </div>
     )
@@ -58,12 +58,12 @@ export function UpdateBanner() {
 
   if (status.state === 'ready') {
     return (
-      <div className="flex items-center justify-between gap-3 border-b border-emerald-900 bg-emerald-950/60 px-6 py-2 text-sm text-emerald-200">
+      <div className="space-y-2 rounded-btn border border-ok-border bg-ok-bg px-3 py-2.5 text-xs text-ok-text">
         <span>
           Update v{status.version} is ready.
-          {installError && <span className="ml-2 text-red-300">{installError}</span>}
+          {installError && <span className="ml-2 text-danger">{installError}</span>}
         </span>
-        <Button variant="primary" onClick={install}>
+        <Button size="sm" variant="primary" className="w-full" onClick={install}>
           Restart to update
         </Button>
       </div>
@@ -73,9 +73,9 @@ export function UpdateBanner() {
   if (status.state === 'error') {
     const message = (status.message ?? '').split('\n')[0]!.slice(0, 200)
     return (
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-900/60 px-6 py-2 text-sm text-zinc-300">
+      <div className="space-y-2 rounded-btn border border-border-strong bg-panel px-3 py-2.5 text-xs text-muted">
         <span>Couldn&apos;t check for updates: {message}</span>
-        <Button variant="ghost" onClick={() => setDismissed(true)}>
+        <Button size="sm" variant="ghost" className="w-full" onClick={() => setDismissed(true)}>
           Dismiss
         </Button>
       </div>

@@ -1,79 +1,94 @@
-import { useEffect, useState } from 'react'
-import { ErrorText } from './components/ui'
-import { UpdateBanner, useUpdateStatus } from './components/UpdateBanner'
+import { useEffect, useRef, useState } from 'react'
+import { AppShell } from './components/AppShell'
+import { ErrorText, pageClass } from './components/ui'
+import { useUpdateStatus } from './components/UpdateBanner'
+import { useOnlinePlayers } from './hooks/useOnlinePlayers'
 import { useServers } from './hooks/useServers'
 import { api } from './lib/api'
+import { resolveSection, type Section } from './lib/routes'
 import { NewServerWizard } from './pages/NewServerWizard'
-import { ServerDetail } from './pages/ServerDetail'
 import { ServerList } from './pages/ServerList'
+import { ServerPage } from './pages/ServerPage'
 
-type Route = { name: 'list' } | { name: 'new' } | { name: 'server'; id: string }
+type Route = { name: 'list' } | { name: 'new' } | { name: 'server'; id: string; section: Section }
 
 export default function App() {
-  const { servers, loaded, error, refresh } = useServers()
+  const { servers, loaded, error, refresh, runningSince } = useServers()
   const [route, setRoute] = useState<Route>({ name: 'list' })
   const [offline, setOffline] = useState(false)
+  const lastSection = useRef(new Map<string, Section>())
   const updateStatus = useUpdateStatus()
 
   useEffect(() => api.on('net:offline', () => setOffline(true)), [])
 
-  const goList = () => setRoute({ name: 'list' })
-  const openServer = (id: string) => setRoute({ name: 'server', id })
   const current = route.name === 'server' ? servers.find((s) => s.id === route.id) : undefined
+  const online = useOnlinePlayers(current?.id, current?.status)
+
+  const goList = () => setRoute({ name: 'list' })
+  const goNew = () => setRoute({ name: 'new' })
+  const openServer = (id: string) => {
+    const server = servers.find((s) => s.id === id)
+    const remembered = lastSection.current.get(id)
+    const section = server ? resolveSection(server.type, remembered) : 'overview'
+    setRoute({ name: 'server', id, section })
+  }
+  const setSection = (section: Section) => {
+    if (route.name !== 'server') return
+    lastSection.current.set(route.id, section)
+    setRoute({ ...route, section })
+  }
 
   return (
-    <div className="flex h-screen flex-col bg-zinc-950 text-zinc-100">
-      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3">
-        <button type="button" onClick={goList} className="text-lg font-semibold tracking-tight">
-          ⛏ Blockhost
-        </button>
-        {updateStatus && (
-          <span className="ml-auto text-xs text-zinc-500">v{updateStatus.currentVersion}</span>
-        )}
-      </header>
-      <UpdateBanner />
-      {offline && (
-        <div className="border-b border-amber-900 bg-amber-950/60 px-6 py-2 text-sm text-amber-200">
-          You seem to be offline. Version lists may be out of date.
-        </div>
-      )}
+    <AppShell
+      servers={servers}
+      active={route.name}
+      current={current}
+      section={route.name === 'server' ? route.section : undefined}
+      onlineCount={online.length}
+      version={updateStatus?.currentVersion}
+      offline={offline}
+      onSection={setSection}
+      onOpenServer={openServer}
+      onAllServers={goList}
+      onNewServer={goNew}
+    >
       {error && (
-        <div className="px-6 pt-4">
+        <div className={`${pageClass} pb-0`}>
           <ErrorText>{error}</ErrorText>
         </div>
       )}
-      <main className="min-h-0 flex-1 overflow-auto">
-        {route.name === 'list' && (
-          <ServerList
-            servers={servers}
-            loaded={loaded}
-            onOpen={openServer}
-            onNew={() => setRoute({ name: 'new' })}
-          />
-        )}
-        {route.name === 'new' && (
+      {route.name === 'list' && (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <ServerList servers={servers} loaded={loaded} onOpen={openServer} onNew={goNew} />
+        </div>
+      )}
+      {route.name === 'new' && (
+        <div className="min-h-0 flex-1 overflow-auto">
           <NewServerWizard
             servers={servers}
             onCancel={goList}
             onCreated={() => void refresh()}
             onOpen={openServer}
           />
-        )}
-        {route.name === 'server' &&
-          (current ? (
-            <ServerDetail
-              server={current}
-              onBack={goList}
-              onChanged={() => void refresh()}
-              onDeleted={() => {
-                void refresh()
-                goList()
-              }}
-            />
-          ) : (
-            <p className="p-6 text-zinc-400">This server no longer exists.</p>
-          ))}
-      </main>
-    </div>
+        </div>
+      )}
+      {route.name === 'server' &&
+        (current ? (
+          <ServerPage
+            server={current}
+            section={route.section}
+            online={online}
+            runningSince={runningSince[current.id]}
+            onSection={setSection}
+            onChanged={() => void refresh()}
+            onDeleted={() => {
+              void refresh()
+              goList()
+            }}
+          />
+        ) : (
+          <p className={`${pageClass} text-muted`}>This server no longer exists.</p>
+        ))}
+    </AppShell>
   )
 }

@@ -118,7 +118,7 @@ function AddForm({
   )
 }
 
-export function PlayersTab({ server }: { server: ServerView }) {
+export function PlayersSection({ server }: { server: ServerView }) {
   const [lists, setLists] = useState<PlayerLists | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)

@@ -216,7 +216,13 @@ function TunnelCard({
   )
 }
 
-export function ConnectTab({ server, onChanged }: { server: ServerView; onChanged: () => void }) {
+export function ConnectSection({
+  server,
+  onChanged
+}: {
+  server: ServerView
+  onChanged: () => void
+}) {
   const [info, setInfo] = useState<NetInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)

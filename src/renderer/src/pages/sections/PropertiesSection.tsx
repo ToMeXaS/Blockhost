@@ -59,7 +59,7 @@ const DEFAULTS: Record<string, string> = {
 
 const KEY_PATTERN = /^[^\s=:#!\\]+$/
 
-export function PropertiesTab({
+export function PropertiesSection({
   server,
   onChanged
 }: {
