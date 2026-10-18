@@ -1,5 +1,46 @@
 @import 'tailwindcss';
 
+@theme {
+  --color-bg: #0c0e11;
+  --color-sidebar: #0f1215;
+  --color-panel: #13171b;
+  --color-panel-2: #1a1f25;
+  --color-console: #0a0c0e;
+  --color-nav-active: #1c2229;
+  --color-border: #1f242b;
+  --color-border-soft: #1a1f25;
+  --color-border-strong: #2a313a;
+  --color-ring: #262d35;
+  --color-text: #e8eaed;
+  --color-text-2: #c9d0d7;
+  --color-muted: #8c96a1;
+  --color-nav: #9aa3ae;
+  --color-faint: #6f7883;
+  --color-accent: #8be36b;
+  --color-accent-ink: #0c0e11;
+  --color-link: #9be07f;
+  --color-info: #6fa8f5;
+  --color-warn: #f2b84b;
+  --color-danger: #f2958a;
+  --color-ok-bg: #172517;
+  --color-ok-text: #a6e795;
+  --color-ok-border: #25402a;
+  --color-bad-bg: #251818;
+  --color-bad-border: #402525;
+  --color-stop-bg: #2a1717;
+  --color-stop-text: #f7b0a7;
+  --color-stop-border: #4a2a2a;
+  --color-warn-bg: #2a2214;
+  --color-warn-border: #4a3b1e;
+
+  --radius-card: 14px;
+  --radius-btn: 9px;
+  --radius-sm: 7px;
+
+  --font-sans: 'Geist Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', Consolas, monospace;
+}
+
 html,
 body,
 #root {
@@ -8,7 +49,13 @@ body,
 
 body {
   margin: 0;
-  font-family: 'Segoe UI', system-ui, sans-serif;
-  background: #09090b;
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
   color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 35%, transparent);
 }
