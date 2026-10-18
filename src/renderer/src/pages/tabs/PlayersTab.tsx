@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   PLAYER_NAME_PATTERN,
   type PlayerAction,
@@ -126,11 +126,20 @@ export function PlayersTab({ server }: { server: ServerView }) {
   const [pendingReason, setPendingReason] = useState('')
   const [banView, setBanView] = useState<'players' | 'ips'>('players')
 
+  const requestIdRef = useRef(0)
   const refresh = useCallback(() => {
+    const requestId = ++requestIdRef.current
     api
       .getPlayers(server.id)
-      .then(setLists)
-      .catch((err) => setError(errorMessage(err)))
+      .then((result) => {
+        if (requestId !== requestIdRef.current) return // a later refresh has superseded this one
+        setLists(result)
+        setError(null)
+      })
+      .catch((err) => {
+        if (requestId !== requestIdRef.current) return
+        setError(errorMessage(err))
+      })
   }, [server.id])
 
   useEffect(() => refresh(), [refresh, server.status])
