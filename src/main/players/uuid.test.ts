@@ -79,6 +79,14 @@ describe('lookupPlayer', () => {
     })
   })
 
+  it('reports a malformed response body as an HTTP error, not INTERNAL', async () => {
+    const client = http(async () => '{not valid json')
+    await expect(lookupPlayer(client, 'Steve', true)).rejects.toMatchObject({
+      code: 'HTTP',
+      message: 'api.mojang.com returned an unreadable response'
+    })
+  })
+
   it('passes other HTTP errors through', async () => {
     const client = http(async () => {
       throw new AppError('HTTP', 'api.mojang.com returned HTTP 429', { status: 429 })

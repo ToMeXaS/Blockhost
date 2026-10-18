@@ -44,7 +44,12 @@ export async function lookupPlayer(
   }
 
   if (!text.trim()) throw notFound(name)
-  const body = JSON.parse(text) as { id?: unknown; name?: unknown }
+  let body: { id?: unknown; name?: unknown }
+  try {
+    body = JSON.parse(text) as { id?: unknown; name?: unknown }
+  } catch {
+    throw new AppError('HTTP', 'api.mojang.com returned an unreadable response')
+  }
   if (typeof body.id !== 'string' || !/^[0-9a-f]{32}$/i.test(body.id)) throw notFound(name)
   return { uuid: formatUuid(body.id), name: typeof body.name === 'string' ? body.name : name }
 }
