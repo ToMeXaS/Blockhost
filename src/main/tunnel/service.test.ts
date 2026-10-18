@@ -6,7 +6,7 @@ import { ServerStore } from '../servers/store'
 import { tempDir } from '../test-utils'
 import { UNLINKED_MESSAGE } from './agent'
 import { TUNNEL_LIMIT_MESSAGE, type PlayitTunnel } from './api'
-import { TunnelService, tunnelName } from './service'
+import { DISABLED_LOCAL_PORT, TunnelService, tunnelName } from './service'
 
 const ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const ID2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
@@ -212,7 +212,8 @@ describe('TunnelService', () => {
     expect(api.rundata.mock.calls.length).toBe(calls + 1)
   })
 
-  it('shows the tunnel limit message and recovers on retry', async () => {
+  it('shows the tunnel limit message, does not retry it on the poll, but recovers on retry', async () => {
+    vi.useFakeTimers()
     const { service, api, up } = await setup()
     api.createTunnel.mockRejectedValueOnce(
       new AppError('PLAYIT_TUNNEL_LIMIT', TUNNEL_LIMIT_MESSAGE)
@@ -220,9 +221,44 @@ describe('TunnelService', () => {
     await service.setShared(ID, true)
     await up(ID)
     expect(service.status(ID)).toMatchObject({ state: 'error', message: TUNNEL_LIMIT_MESSAGE })
+    const callsBeforePoll = api.createTunnel.mock.calls.length
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(api.createTunnel.mock.calls.length).toBe(callsBeforePoll)
     const after = await service.retry(ID)
     expect(after.state).toBe('connecting')
     expect(api.createTunnel).toHaveBeenCalledTimes(2)
+  })
+
+  it('recovers from a transient rundata error on the next poll', async () => {
+    vi.useFakeTimers()
+    const { service, api, up } = await setup()
+    api.rundata.mockRejectedValueOnce(new AppError('NETWORK', 'Could not reach playit.gg'))
+    await service.setShared(ID, true)
+    await up(ID)
+    expect(service.status(ID)).toMatchObject({
+      state: 'error',
+      message: 'Could not reach playit.gg'
+    })
+    expect(api.createTunnel).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(30_000)
+    await service.whenIdle()
+    expect(service.status(ID).state).not.toBe('error')
+    expect(api.createTunnel).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears an error phase when the server stops and restarts', async () => {
+    const { service, api, up, statuses } = await setup()
+    api.rundata.mockRejectedValueOnce(new AppError('NETWORK', 'offline'))
+    await service.setShared(ID, true)
+    await up(ID)
+    expect(service.status(ID).state).toBe('error')
+    statuses.set(ID, 'stopped')
+    service.onServerStatus({ serverId: ID, status: 'stopped' })
+    await service.whenIdle()
+    statuses.set(ID, 'running')
+    service.onServerStatus({ serverId: ID, status: 'running' })
+    await service.whenIdle()
+    expect(service.status(ID).state).not.toBe('error')
   })
 
   it('stops the agent when the last shared server stops', async () => {
@@ -241,6 +277,63 @@ describe('TunnelService', () => {
     await service.whenIdle()
     expect(agent.stop).toHaveBeenCalledTimes(1)
     expect(service.status(ID)).toMatchObject({ state: 'off', address: 't1.gl.joinmc.link' })
+  })
+
+  it('restarts the agent when it stops unexpectedly while a server stays shared', async () => {
+    const { service, agent, up } = await setup()
+    await service.setShared(ID, true)
+    await up(ID)
+    expect(agent.start).toHaveBeenCalledTimes(1)
+    service.onAgentEvent({ state: 'stopped' })
+    await service.whenIdle()
+    expect(agent.start).toHaveBeenCalledTimes(2)
+  })
+
+  it('retry also restarts the agent when the last event was "stopped"', async () => {
+    const { service, agent, up } = await setup()
+    await service.setShared(ID, true)
+    await up(ID)
+    service.onAgentEvent({ state: 'stopped' })
+    await service.whenIdle()
+    expect(agent.start).toHaveBeenCalledTimes(2)
+    await service.retry(ID)
+    expect(agent.retry).toHaveBeenCalledTimes(1)
+  })
+
+  it('disabling one of two shared servers blanks its tunnel without stopping the agent', async () => {
+    const { service, agent, api, store, up } = await setup()
+    await service.setShared(ID, true)
+    await service.setShared(ID2, true)
+    await up(ID)
+    await up(ID2)
+    const tunnelId = store.get(ID).tunnel?.tunnelId
+    expect(tunnelId).toBeDefined()
+    await service.setShared(ID, false)
+    expect(api.setTunnelPort).toHaveBeenCalledWith('k3y', tunnelId, DISABLED_LOCAL_PORT)
+    expect(agent.stop).not.toHaveBeenCalled()
+
+    await service.setShared(ID, true)
+    await up(ID)
+    expect(api.setTunnelPort).toHaveBeenCalledWith('k3y', tunnelId, 25565)
+  })
+
+  it('does not fail setShared when disabling fails to repoint the tunnel', async () => {
+    const { service, api, up } = await setup()
+    await service.setShared(ID, true)
+    await up(ID)
+    api.setTunnelPort.mockRejectedValueOnce(new Error('offline'))
+    await expect(service.setShared(ID, false)).resolves.toMatchObject({ state: 'off' })
+  })
+
+  it('keeps the relink message after a further status event', async () => {
+    const { service, api, up } = await setup()
+    await service.setShared(ID, true)
+    api.rundata.mockRejectedValueOnce(new AppError('PLAYIT_UNAUTHORIZED', UNLINKED_MESSAGE))
+    await up(ID)
+    expect(service.status(ID)).toMatchObject({ state: 'error', message: UNLINKED_MESSAGE })
+    service.onServerStatus({ serverId: ID, status: 'running' })
+    await service.whenIdle()
+    expect(service.status(ID)).toMatchObject({ state: 'error', message: UNLINKED_MESSAGE })
   })
 
   it('turning sharing off stops the agent for that server', async () => {
@@ -265,12 +358,14 @@ describe('TunnelService', () => {
   })
 
   it('handles an unauthorized event from the agent the same way', async () => {
-    const { service, account, up } = await setup()
+    const { service, account, store, up } = await setup()
     await service.setShared(ID, true)
     await up(ID)
+    expect(store.get(ID).tunnel?.tunnelId).toBe('t1')
     service.onAgentEvent({ state: 'error', unauthorized: true, message: UNLINKED_MESSAGE })
     await service.whenIdle()
     expect(account.unlink).toHaveBeenCalled()
+    expect(store.get(ID).tunnel).toEqual({ enabled: true })
   })
 
   it('shows the agent error while it cannot connect', async () => {

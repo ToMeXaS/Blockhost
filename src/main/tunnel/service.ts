@@ -10,17 +10,26 @@ import type { ProcessManager } from '../servers/process'
 import type { ServerStore } from '../servers/store'
 import type { PlayitAccount } from './account'
 import { UNLINKED_MESSAGE, type AgentEvent, type AgentProcess } from './agent'
-import type { PlayitApi, PlayitTunnel, RunData } from './api'
+import { TUNNEL_LIMIT_MESSAGE, type PlayitApi, type PlayitTunnel, type RunData } from './api'
 import type { PlayitdBinary } from './binary'
 
 export const ADDRESS_POLL_MS = 30_000
+/** Local port written to a tunnel whose server has sharing turned off, so nothing listens. */
+export const DISABLED_LOCAL_PORT = 1
 const NOT_LINKED_MESSAGE = 'Link your playit.gg account first.'
 
 type Phase =
   | { state: 'downloading'; percent?: number }
   | { state: 'needs-setup' }
-  | { state: 'error'; message: string }
+  | { state: 'error'; message: string; permanent: boolean }
   | { state: 'ready' }
+
+const PERMANENT_MESSAGES = new Set([UNLINKED_MESSAGE, NOT_LINKED_MESSAGE, TUNNEL_LIMIT_MESSAGE])
+const DISABLED_TUNNEL_PREFIX = 'playit.gg has disabled this tunnel'
+
+function isPermanent(message: string): boolean {
+  return PERMANENT_MESSAGES.has(message) || message.startsWith(DISABLED_TUNNEL_PREFIX)
+}
 
 export function tunnelName(serverName: string): string {
   return `Blockhost ${serverName}`
@@ -94,6 +103,15 @@ export class TunnelService {
       const rec = this.deps.store.get(serverId)
       await this.deps.store.update(serverId, { tunnel: { ...rec.tunnel, enabled } })
       this.phases.delete(serverId)
+      if (!enabled && rec.tunnel?.tunnelId) {
+        const tunnelId = rec.tunnel.tunnelId
+        try {
+          const secret = await this.deps.account.secret()
+          if (secret) await this.deps.api.setTunnelPort(secret, tunnelId, DISABLED_LOCAL_PORT)
+        } catch (err) {
+          this.log(`could not blank playit tunnel ${tunnelId}: ${messageOf(err)}`)
+        }
+      }
       await this.sync()
       return this.status(serverId)
     })
@@ -138,7 +156,12 @@ export class TunnelService {
     return this.enqueue(async () => {
       this.deps.store.get(serverId)
       this.phases.delete(serverId)
-      if (this.agentRunning && this.agentEvent.state === 'error') await this.deps.agent.retry()
+      if (
+        this.agentRunning &&
+        (this.agentEvent.state === 'error' || this.agentEvent.state === 'stopped')
+      ) {
+        await this.deps.agent.retry()
+      }
       await this.sync()
       return this.status(serverId)
     })
@@ -158,6 +181,16 @@ export class TunnelService {
     }
     if (event.state === 'connected') {
       void this.enqueue(() => this.refresh()).catch((err) => this.log(messageOf(err)))
+    }
+    if (event.state === 'stopped' && this.agentRunning) {
+      void this
+        .enqueue(async () => {
+          this.agentRunning = false
+          this.clearPoll()
+          await this.sync()
+        })
+        .catch((err) => this.log(messageOf(err)))
+      return
     }
     this.emitActive()
   }
@@ -205,6 +238,9 @@ export class TunnelService {
   }
 
   private async sync(): Promise<void> {
+    for (const rec of this.deps.store.list()) {
+      if (!this.isUp(rec.id)) this.phases.delete(rec.id)
+    }
     const active = this.active()
     if (active.length === 0) {
       this.stopAgent()
@@ -212,8 +248,17 @@ export class TunnelService {
       return
     }
     if (!(await this.deps.account.isLinked())) {
-      for (const rec of active)
-        this.phases.set(rec.id, { state: 'error', message: NOT_LINKED_MESSAGE })
+      for (const rec of active) {
+        const existing = this.phases.get(rec.id)
+        if (
+          existing?.state === 'error' &&
+          existing.permanent &&
+          existing.message === UNLINKED_MESSAGE
+        ) {
+          continue
+        }
+        this.phases.set(rec.id, { state: 'error', message: NOT_LINKED_MESSAGE, permanent: true })
+      }
       this.emitAll()
       return
     }
@@ -227,12 +272,18 @@ export class TunnelService {
         })
       } catch (err) {
         for (const rec of active)
-          this.phases.set(rec.id, { state: 'error', message: messageOf(err) })
+          this.phases.set(rec.id, {
+            state: 'error',
+            message: messageOf(err),
+            permanent: isPermanent(messageOf(err))
+          })
         this.emitAll()
         return
       }
       for (const rec of active) {
-        if (this.phases.get(rec.id)?.state === 'downloading') this.phases.delete(rec.id)
+        const existing = this.phases.get(rec.id)
+        if (existing?.state === 'downloading') this.phases.delete(rec.id)
+        else if (existing?.state === 'error' && !existing.permanent) this.phases.delete(rec.id)
       }
       this.agentRunning = true
       await this.deps.agent.start()
@@ -243,9 +294,13 @@ export class TunnelService {
     await this.refresh()
   }
 
-  private stopAgent(): void {
+  private clearPoll(): void {
     clearInterval(this.poll)
     this.poll = undefined
+  }
+
+  private stopAgent(): void {
+    this.clearPoll()
     if (!this.agentRunning) return
     this.agentRunning = false
     this.agentEvent = { state: 'stopped' }
@@ -258,7 +313,7 @@ export class TunnelService {
     const secret = await this.deps.account.secret()
     if (!secret) {
       for (const rec of active)
-        this.phases.set(rec.id, { state: 'error', message: NOT_LINKED_MESSAGE })
+        this.phases.set(rec.id, { state: 'error', message: NOT_LINKED_MESSAGE, permanent: true })
       this.emitAll()
       return
     }
@@ -270,10 +325,12 @@ export class TunnelService {
         await this.handleUnauthorized()
         return
       }
+      const message = messageOf(err)
       for (const rec of active) {
-        if (this.phases.get(rec.id)?.state !== 'ready') {
-          this.phases.set(rec.id, { state: 'error', message: messageOf(err) })
-        }
+        const existing = this.phases.get(rec.id)
+        if (existing?.state === 'ready') continue
+        if (existing?.state === 'error' && existing.permanent) continue
+        this.phases.set(rec.id, { state: 'error', message, permanent: isPermanent(message) })
       }
       this.emitAll()
       return
@@ -285,7 +342,8 @@ export class TunnelService {
         .filter((id): id is string => !!id)
     )
     for (const rec of active) {
-      if (this.phases.get(rec.id)?.state === 'error') continue
+      const existing = this.phases.get(rec.id)
+      if (existing?.state === 'error' && existing.permanent) continue
       try {
         await this.resolveTunnel(rec, run, secret, claimed)
       } catch (err) {
@@ -293,7 +351,8 @@ export class TunnelService {
           await this.handleUnauthorized()
           return
         }
-        this.phases.set(rec.id, { state: 'error', message: messageOf(err) })
+        const message = messageOf(err)
+        this.phases.set(rec.id, { state: 'error', message, permanent: isPermanent(message) })
       }
     }
     this.emitAll()
@@ -342,7 +401,8 @@ export class TunnelService {
     if (tunnel.disabledReason) {
       this.phases.set(rec.id, {
         state: 'error',
-        message: `playit.gg has disabled this tunnel: ${tunnel.disabledReason}`
+        message: `${DISABLED_TUNNEL_PREFIX}: ${tunnel.disabledReason}`,
+        permanent: true
       })
       return
     }
@@ -367,8 +427,11 @@ export class TunnelService {
     this.stopAgent()
     await this.deps.account.unlink()
     for (const rec of this.deps.store.list()) {
-      if (rec.tunnel?.enabled)
-        this.phases.set(rec.id, { state: 'error', message: UNLINKED_MESSAGE })
+      if (!rec.tunnel) continue
+      await this.deps.store.update(rec.id, { tunnel: { enabled: rec.tunnel.enabled } })
+      if (rec.tunnel.enabled) {
+        this.phases.set(rec.id, { state: 'error', message: UNLINKED_MESSAGE, permanent: true })
+      }
     }
     this.emitAll()
   }
