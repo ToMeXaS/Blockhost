@@ -24,7 +24,7 @@ Run on a clean Windows 10/11 machine (no Java installed) using `dist/Blockhost-<
 - [ ] A server that is not shared is not reachable from outside, even when it uses the same port as a stopped shared server
 - [ ] Unlink removes the switch; no playitd.exe remains in Task Manager after the app quits
 - [ ] Paper server: the Plugins tab finds and installs a plugin (e.g. LuckPerms); after a restart the console shows it loading
-- [ ] Fabric server: installing Sodium also installs Fabric API; the note names both; after a restart the server starts with both
+- [ ] Fabric server: installing Chunky (a server-side mod that requires Fabric API) also installs Fabric API; the note names both; after a restart the server starts with both
 - [ ] A jar copied into mods/ by hand shows as "from Modrinth" once identified, or "added manually"
-- [ ] Remove is disabled while the server runs; after stopping, removing Fabric API warns that Sodium needs it
+- [ ] Remove is disabled while the server runs; after stopping, removing Fabric API warns that Chunky needs it
 - [ ] Uninstall via Windows Settings removes the app (server folders remain)
