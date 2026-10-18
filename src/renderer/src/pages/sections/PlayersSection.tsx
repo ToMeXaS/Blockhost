@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   PLAYER_NAME_PATTERN,
   type PlayerAction,
@@ -6,7 +6,20 @@ import {
   type PlayerLists,
   type ServerView
 } from '../../../../shared/types'
-import { Button, ErrorText, inputClass } from '../../components/ui'
+import {
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  ErrorText,
+  inputClass,
+  Notice,
+  Segmented,
+  Table,
+  Td,
+  Th,
+  trClass
+} from '../../components/ui'
 import { api, ApiCallError, errorMessage } from '../../lib/api'
 
 const LIST_FILE_NAMES: Record<PlayerListName, string> = {
@@ -21,37 +34,8 @@ const IP_PATTERN = /^[0-9a-fA-F.:]{2,45}$/
 
 type Pending = { type: 'kick' | 'ban'; name: string }
 
-function Card({
-  title,
-  actions,
-  children
-}: {
-  title: string
-  actions?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <section className="space-y-3 rounded-md border border-zinc-800 bg-zinc-900 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="font-medium">{title}</h3>
-        {actions}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function Row({ children, actions }: { children: ReactNode; actions: ReactNode }) {
-  return (
-    <li className="flex items-center justify-between gap-2 py-1 text-sm">
-      <span className="min-w-0 truncate">{children}</span>
-      <span className="flex shrink-0 gap-1">{actions}</span>
-    </li>
-  )
-}
-
-function Empty({ children }: { children: ReactNode }) {
-  return <p className="text-sm text-zinc-500">{children}</p>
+function Empty({ children }: { children: string }) {
+  return <p className="text-sm text-faint">{children}</p>
 }
 
 function AddForm({
@@ -90,7 +74,7 @@ function AddForm({
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="space-y-1">
+    <form onSubmit={(e) => void submit(e)} className="mt-3 space-y-1">
       <div className="flex gap-2">
         <input
           className={inputClass}
@@ -113,7 +97,7 @@ function AddForm({
           {submitLabel}
         </Button>
       </div>
-      {invalid && <p className="text-xs text-red-400">{invalidMessage}</p>}
+      {invalid && <p className="text-xs text-danger">{invalidMessage}</p>}
     </form>
   )
 }
@@ -202,107 +186,133 @@ export function PlayersSection({ server }: { server: ServerView }) {
         </ErrorText>
       )}
       {transitioning && (
-        <p className="text-sm text-zinc-400">
-          Player changes are paused while the server is {server.status}.
-        </p>
+        <Notice tone="warn">Player changes are paused while the server is {server.status}.</Notice>
       )}
 
-      <Card title={running ? `Online now (${lists.online.length})` : 'Online now'}>
-        {!running ? (
-          <Empty>Server is offline — changes are saved to files and apply on next start.</Empty>
-        ) : lists.online.length === 0 ? (
-          <Empty>No one is online.</Empty>
-        ) : (
-          <ul className="divide-y divide-zinc-800">
-            {lists.online.map((name) => (
-              <Row
-                key={name}
-                actions={
-                  <>
-                    <Button
-                      variant="ghost"
-                      disabled={disabled}
-                      onClick={() => setPending({ type: 'kick', name })}
-                    >
-                      Kick
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={disabled}
-                      onClick={() => void act({ type: isOp(name) ? 'deop' : 'op', name })}
-                    >
-                      {isOp(name) ? 'Deop' : 'Op'}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={disabled}
-                      onClick={() => setPending({ type: 'ban', name })}
-                    >
-                      Ban
-                    </Button>
-                  </>
-                }
-              >
-                {name}
-                {isOp(name) && <span className="ml-2 text-xs text-emerald-400">op</span>}
-              </Row>
-            ))}
-          </ul>
-        )}
-        {pending && (
-          <div className="space-y-2 rounded-md border border-zinc-700 p-3">
-            <p className="text-sm">
-              {pending.type === 'kick' ? 'Kick' : 'Ban'} <b>{pending.name}</b>?
-            </p>
-            <input
-              className={inputClass}
-              placeholder="Reason (optional)"
-              maxLength={200}
-              value={pendingReason}
-              onChange={(e) => setPendingReason(e.target.value)}
-            />
-            <div className="flex gap-2">
-              <Button variant="danger" disabled={disabled} onClick={() => void confirmPending()}>
-                {pending.type === 'kick' ? 'Kick' : 'Ban'}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setPending(null)
-                  setPendingReason('')
-                }}
-              >
-                Cancel
-              </Button>
+      <div className="grid gap-4 min-[1000px]:grid-cols-2">
+        <Card title={running ? `Online now (${lists.online.length})` : 'Online now'}>
+          {!running ? (
+            <Empty>Server is offline — changes are saved to files and apply on next start.</Empty>
+          ) : lists.online.length === 0 ? (
+            <Empty>No one is online.</Empty>
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Player</Th>
+                  <Th />
+                </tr>
+              </thead>
+              <tbody>
+                {lists.online.map((name) => (
+                  <tr key={name} className={trClass}>
+                    <Td>
+                      <span className="flex items-center gap-2">
+                        <Avatar name={name} size={24} />
+                        {name}
+                        {isOp(name) && <Badge tone="accent">op</Badge>}
+                      </span>
+                    </Td>
+                    <Td>
+                      <span className="flex shrink-0 justify-end gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={disabled}
+                          onClick={() => setPending({ type: 'kick', name })}
+                        >
+                          Kick
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={disabled}
+                          onClick={() => void act({ type: isOp(name) ? 'deop' : 'op', name })}
+                        >
+                          {isOp(name) ? 'Deop' : 'Op'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={disabled}
+                          onClick={() => setPending({ type: 'ban', name })}
+                        >
+                          Ban
+                        </Button>
+                      </span>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+          {pending && (
+            <div className="mt-3 space-y-2 rounded-card border border-border-strong p-3">
+              <p className="text-sm text-text-2">
+                {pending.type === 'kick' ? 'Kick' : 'Ban'} <b>{pending.name}</b>?
+              </p>
+              <input
+                className={inputClass}
+                placeholder="Reason (optional)"
+                maxLength={200}
+                value={pendingReason}
+                onChange={(e) => setPendingReason(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <Button variant="danger" disabled={disabled} onClick={() => void confirmPending()}>
+                  {pending.type === 'kick' ? 'Kick' : 'Ban'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setPending(null)
+                    setPendingReason('')
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
-      </Card>
+          )}
+        </Card>
 
-      <div className="grid gap-4 lg:grid-cols-3">
         <Card title="Operators">
           {lists.ops.length === 0 ? (
             <Empty>No operators.</Empty>
           ) : (
-            <ul className="divide-y divide-zinc-800">
-              {lists.ops.map((op) => (
-                <Row
-                  key={op.uuid || op.name}
-                  actions={
-                    <Button
-                      variant="ghost"
-                      disabled={disabled}
-                      aria-label={`Remove ${op.name} from operators`}
-                      onClick={() => void act({ type: 'deop', name: op.name })}
-                    >
-                      ×
-                    </Button>
-                  }
-                >
-                  {op.name}
-                </Row>
-              ))}
-            </ul>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Operator</Th>
+                  <Th />
+                </tr>
+              </thead>
+              <tbody>
+                {lists.ops.map((op) => (
+                  <tr key={op.uuid || op.name} className={trClass}>
+                    <Td>
+                      <span className="flex items-center gap-2">
+                        <Avatar name={op.name} size={24} />
+                        {op.name}
+                      </span>
+                    </Td>
+                    <Td>
+                      <span className="flex justify-end">
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={disabled}
+                          aria-label={`Remove ${op.name} from operators`}
+                          onClick={() => void act({ type: 'deop', name: op.name })}
+                        >
+                          Remove
+                        </Button>
+                      </span>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
           )}
           <AddForm
             placeholder="Username"
@@ -312,9 +322,16 @@ export function PlayersSection({ server }: { server: ServerView }) {
             onSubmit={(name) => act({ type: 'op', name })}
           />
         </Card>
+      </div>
 
+      <div className="grid gap-4 min-[1000px]:grid-cols-2">
         <Card
           title="Whitelist"
+          description={
+            lists.whitelistEnabled
+              ? 'Only these players can join.'
+              : 'Off — anyone can join. Turn it on to allow only these players.'
+          }
           actions={
             <Button
               variant={lists.whitelistEnabled ? 'primary' : 'secondary'}
@@ -327,33 +344,42 @@ export function PlayersSection({ server }: { server: ServerView }) {
             </Button>
           }
         >
-          <p className="text-xs text-zinc-500">
-            {lists.whitelistEnabled
-              ? 'Only these players can join.'
-              : 'Off — anyone can join. Turn it on to allow only these players.'}
-          </p>
           {lists.whitelist.length === 0 ? (
             <Empty>No players on the whitelist.</Empty>
           ) : (
-            <ul className="divide-y divide-zinc-800">
-              {lists.whitelist.map((p) => (
-                <Row
-                  key={p.uuid || p.name}
-                  actions={
-                    <Button
-                      variant="ghost"
-                      disabled={disabled}
-                      aria-label={`Remove ${p.name} from the whitelist`}
-                      onClick={() => void act({ type: 'whitelistRemove', name: p.name })}
-                    >
-                      ×
-                    </Button>
-                  }
-                >
-                  {p.name}
-                </Row>
-              ))}
-            </ul>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Player</Th>
+                  <Th />
+                </tr>
+              </thead>
+              <tbody>
+                {lists.whitelist.map((p) => (
+                  <tr key={p.uuid || p.name} className={trClass}>
+                    <Td>
+                      <span className="flex items-center gap-2">
+                        <Avatar name={p.name} size={24} />
+                        {p.name}
+                      </span>
+                    </Td>
+                    <Td>
+                      <span className="flex justify-end">
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={disabled}
+                          aria-label={`Remove ${p.name} from the whitelist`}
+                          onClick={() => void act({ type: 'whitelistRemove', name: p.name })}
+                        >
+                          Remove
+                        </Button>
+                      </span>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
           )}
           <AddForm
             placeholder="Username"
@@ -367,20 +393,15 @@ export function PlayersSection({ server }: { server: ServerView }) {
         <Card
           title="Banned"
           actions={
-            <div className="flex gap-1">
-              <Button
-                variant={banView === 'players' ? 'secondary' : 'ghost'}
-                onClick={() => setBanView('players')}
-              >
-                Players
-              </Button>
-              <Button
-                variant={banView === 'ips' ? 'secondary' : 'ghost'}
-                onClick={() => setBanView('ips')}
-              >
-                IPs
-              </Button>
-            </div>
+            <Segmented
+              label="Ban list"
+              options={[
+                { value: 'players', label: 'Players' },
+                { value: 'ips', label: 'IPs' }
+              ]}
+              value={banView}
+              onChange={setBanView}
+            />
           }
         >
           {banView === 'players' ? (
@@ -388,25 +409,40 @@ export function PlayersSection({ server }: { server: ServerView }) {
               {lists.bannedPlayers.length === 0 ? (
                 <Empty>No banned players.</Empty>
               ) : (
-                <ul className="divide-y divide-zinc-800">
-                  {lists.bannedPlayers.map((b) => (
-                    <Row
-                      key={b.uuid || b.name}
-                      actions={
-                        <Button
-                          variant="ghost"
-                          disabled={disabled}
-                          onClick={() => void act({ type: 'pardon', name: b.name })}
-                        >
-                          Pardon
-                        </Button>
-                      }
-                    >
-                      {b.name}
-                      {b.reason && <span className="ml-2 text-xs text-zinc-500">{b.reason}</span>}
-                    </Row>
-                  ))}
-                </ul>
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>Player</Th>
+                      <Th>Reason</Th>
+                      <Th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lists.bannedPlayers.map((b) => (
+                      <tr key={b.uuid || b.name} className={trClass}>
+                        <Td>
+                          <span className="flex items-center gap-2">
+                            <Avatar name={b.name} size={24} />
+                            {b.name}
+                          </span>
+                        </Td>
+                        <Td className="text-faint">{b.reason}</Td>
+                        <Td>
+                          <span className="flex justify-end">
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              disabled={disabled}
+                              onClick={() => void act({ type: 'pardon', name: b.name })}
+                            >
+                              Pardon
+                            </Button>
+                          </span>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
               )}
               <AddForm
                 placeholder="Username"
@@ -423,25 +459,35 @@ export function PlayersSection({ server }: { server: ServerView }) {
               {lists.bannedIps.length === 0 ? (
                 <Empty>No banned IP addresses.</Empty>
               ) : (
-                <ul className="divide-y divide-zinc-800">
-                  {lists.bannedIps.map((b) => (
-                    <Row
-                      key={b.ip}
-                      actions={
-                        <Button
-                          variant="ghost"
-                          disabled={disabled}
-                          onClick={() => void act({ type: 'pardonIp', ip: b.ip })}
-                        >
-                          Pardon
-                        </Button>
-                      }
-                    >
-                      <code>{b.ip}</code>
-                      {b.reason && <span className="ml-2 text-xs text-zinc-500">{b.reason}</span>}
-                    </Row>
-                  ))}
-                </ul>
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>IP address</Th>
+                      <Th>Reason</Th>
+                      <Th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lists.bannedIps.map((b) => (
+                      <tr key={b.ip} className={trClass}>
+                        <Td className="font-mono">{b.ip}</Td>
+                        <Td className="text-faint">{b.reason}</Td>
+                        <Td>
+                          <span className="flex justify-end">
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              disabled={disabled}
+                              onClick={() => void act({ type: 'pardonIp', ip: b.ip })}
+                            >
+                              Pardon
+                            </Button>
+                          </span>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
               )}
               <AddForm
                 placeholder="IP address"
