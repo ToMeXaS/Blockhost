@@ -103,6 +103,9 @@ export class TunnelService {
       const rec = this.deps.store.get(serverId)
       await this.deps.store.update(serverId, { tunnel: { ...rec.tunnel, enabled } })
       this.phases.delete(serverId)
+      // Sync first so the agent stops at once when nothing else is shared; the blank
+      // below is best effort and may wait on playit.gg.
+      await this.sync()
       if (!enabled && rec.tunnel?.tunnelId) {
         const tunnelId = rec.tunnel.tunnelId
         try {
@@ -112,7 +115,6 @@ export class TunnelService {
           this.log(`could not blank playit tunnel ${tunnelId}: ${messageOf(err)}`)
         }
       }
-      await this.sync()
       return this.status(serverId)
     })
   }

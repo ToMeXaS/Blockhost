@@ -369,6 +369,19 @@ describe('TunnelService', () => {
     expect(api.setTunnelPort.mock.calls.length).toBe(calls)
   })
 
+  it('stops the agent before blanking when the only shared server is disabled', async () => {
+    const { service, agent, api, up } = await setup()
+    await service.setShared(ID, true)
+    await up(ID)
+    const order: string[] = []
+    agent.stop.mockImplementation(() => order.push('stop'))
+    api.setTunnelPort.mockImplementation(async () => {
+      order.push('blank')
+    })
+    await service.setShared(ID, false)
+    expect(order).toEqual(['stop', 'blank'])
+  })
+
   it('does not fail setShared when disabling fails to repoint the tunnel', async () => {
     const { service, api, up } = await setup()
     await service.setShared(ID, true)
