@@ -216,4 +216,44 @@ describe('planInstall', () => {
     const c = ctx([SODIUM], [version('s2', SODIUM.id), version('s1', SODIUM.id)])
     expect((await planInstall('sodium', c, 's1'))[0].versionId).toBe('s1')
   })
+
+  it('propagates a non-404 error from a pinned dependency version lookup', async () => {
+    const c = ctx(
+      [SODIUM, API],
+      [version('s1', SODIUM.id, { deps: [req(API.id, 'a-old')] }), version('a-new', API.id)]
+    )
+    const original = c.client.version as (id: string) => Promise<ModrinthVersion>
+    c.client.version = vi.fn(async (id: string) => {
+      if (id === 'a-old') throw new AppError('NETWORK', 'down')
+      return original(id)
+    })
+    await expect(planInstall('sodium', c)).rejects.toMatchObject({ code: 'NETWORK' })
+  })
+
+  it('reports an unavailable version-only dependency instead of dropping it', async () => {
+    const c = ctx(
+      [SODIUM],
+      [version('s1', SODIUM.id, { deps: [req(null, 'missing-version')] })]
+    )
+    await expect(planInstall('sodium', c)).rejects.toMatchObject({
+      code: 'CONTENT_DEPENDENCY_UNAVAILABLE',
+      message: 'Sodium needs a dependency that is no longer on Modrinth.'
+    })
+  })
+
+  it('propagates a non-404 error from a version-only dependency lookup', async () => {
+    const c = ctx([SODIUM], [version('s1', SODIUM.id, { deps: [req(null, 'a1')] })])
+    c.client.version = vi.fn(async () => {
+      throw new AppError('NETWORK', 'down')
+    })
+    await expect(planInstall('sodium', c)).rejects.toMatchObject({ code: 'NETWORK' })
+  })
+
+  it('reports a required dependency whose project is no longer on Modrinth', async () => {
+    const c = ctx([SODIUM], [version('s1', SODIUM.id, { deps: [req('unknown-project')] })])
+    await expect(planInstall('sodium', c)).rejects.toMatchObject({
+      code: 'CONTENT_DEPENDENCY_UNAVAILABLE',
+      message: 'Sodium needs a dependency that is no longer on Modrinth.'
+    })
+  })
 })

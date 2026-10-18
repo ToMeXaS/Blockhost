@@ -29,6 +29,10 @@ export interface ResolveContext {
 
 const TYPE_ORDER: ModrinthVersion['version_type'][] = ['release', 'beta', 'alpha']
 
+function isNotFound(err: unknown): boolean {
+  return err instanceof AppError && err.code === 'MODRINTH_API' && err.details?.status === 404
+}
+
 export function isCompatible(v: ModrinthVersion, loaders: string[], mcVersion: string): boolean {
   return v.game_versions.includes(mcVersion) && v.loaders.some((l) => loaders.includes(l))
 }
@@ -59,8 +63,9 @@ export async function planInstall(
     try {
       const v = await ctx.client.version(id)
       return isCompatible(v, ctx.loaders, ctx.mcVersion) && v.files.length > 0 ? v : null
-    } catch {
-      return null
+    } catch (err) {
+      if (isNotFound(err)) return null
+      throw err
     }
   }
 
@@ -69,7 +74,18 @@ export async function planInstall(
     pinnedVersion: string | null,
     parent: PlanItem | null
   ): Promise<void> {
-    const project = await ctx.client.project(idOrSlug)
+    let project
+    try {
+      project = await ctx.client.project(idOrSlug)
+    } catch (err) {
+      if (parent && isNotFound(err)) {
+        throw new AppError(
+          'CONTENT_DEPENDENCY_UNAVAILABLE',
+          `${parent.title} needs a dependency that is no longer on Modrinth.`
+        )
+      }
+      throw err
+    }
     if (ctx.installedProjectIds.has(project.id)) return
     const existing = byProject.get(project.id)
     if (existing) {
@@ -132,8 +148,14 @@ export async function planInstall(
       if (!depProject && dep.version_id) {
         try {
           depProject = (await ctx.client.version(dep.version_id)).project_id
-        } catch {
-          depProject = null
+        } catch (err) {
+          if (isNotFound(err)) {
+            throw new AppError(
+              'CONTENT_DEPENDENCY_UNAVAILABLE',
+              `${item.title} needs a dependency that is no longer on Modrinth.`
+            )
+          }
+          throw err
         }
       }
       if (!depProject) continue
