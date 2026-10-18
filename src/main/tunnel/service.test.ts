@@ -235,7 +235,10 @@ describe('TunnelService', () => {
   it('recovers from a transient rundata error on the next poll', async () => {
     vi.useFakeTimers()
     const { service, api, up } = await setup()
-    api.rundata.mockRejectedValueOnce(new AppError('NETWORK', 'Could not reach playit.gg'))
+    // The first rundata (securing other tunnels before the agent starts) succeeds.
+    api.rundata
+      .mockResolvedValueOnce({ agentId: AGENT, tunnels: [] })
+      .mockRejectedValueOnce(new AppError('NETWORK', 'Could not reach playit.gg'))
     await service.setShared(ID, true)
     await up(ID)
     expect(service.status(ID)).toMatchObject({
@@ -357,6 +360,97 @@ describe('TunnelService', () => {
     expect(tunnels.find((t) => t.id === tunnelId)?.localPort).toBe(DISABLED_LOCAL_PORT)
   })
 
+  it('blanks the tunnel of a no-longer-shared server before starting the agent', async () => {
+    const { service, agent, api, store, up, statuses, tunnels } = await setup()
+    await service.setShared(ID, true)
+    await service.setShared(ID2, true)
+    await up(ID)
+    const tunnelId = store.get(ID).tunnel?.tunnelId
+    statuses.set(ID, 'stopped')
+    service.onServerStatus({ serverId: ID, status: 'stopped' })
+    await service.whenIdle()
+    expect(agent.stop).toHaveBeenCalledTimes(1)
+    expect(tunnels.find((t) => t.id === tunnelId)?.localPort).toBe(25565)
+
+    const order: string[] = []
+    api.setTunnelPort.mockImplementation(async (_s: string, id: string, port: number) => {
+      order.push(`port ${id} ${port}`)
+      tunnels.find((t) => t.id === id)!.localPort = port
+    })
+    agent.start.mockImplementation(async () => {
+      order.push('start')
+    })
+    await up(ID2)
+    expect(order.indexOf(`port ${tunnelId} ${DISABLED_LOCAL_PORT}`)).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf(`port ${tunnelId} ${DISABLED_LOCAL_PORT}`)).toBeLessThan(
+      order.indexOf('start')
+    )
+  })
+
+  it('does not start the agent when an inactive tunnel cannot be blanked, and retries', async () => {
+    vi.useFakeTimers()
+    const { service, agent, api, store, up, statuses, tunnels } = await setup()
+    await service.setShared(ID, true)
+    await service.setShared(ID2, true)
+    await up(ID)
+    const tunnelId = store.get(ID).tunnel?.tunnelId
+    statuses.set(ID, 'stopped')
+    service.onServerStatus({ serverId: ID, status: 'stopped' })
+    await service.whenIdle()
+    expect(agent.start).toHaveBeenCalledTimes(1)
+
+    api.setTunnelPort.mockRejectedValueOnce(new Error('offline'))
+    await up(ID2)
+    expect(agent.start).toHaveBeenCalledTimes(1)
+    expect(service.status(ID2)).toMatchObject({
+      state: 'error',
+      message: 'Could not secure your other playit tunnels before sharing: offline'
+    })
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    await service.whenIdle()
+    expect(tunnels.find((t) => t.id === tunnelId)?.localPort).toBe(DISABLED_LOCAL_PORT)
+    expect(agent.start).toHaveBeenCalledTimes(2)
+    expect(service.status(ID2).state).not.toBe('error')
+  })
+
+  it('does not start the agent when run data cannot be read first, and recovers on retry', async () => {
+    const { service, agent, api, store, up, statuses } = await setup()
+    await service.setShared(ID, true)
+    await service.setShared(ID2, true)
+    await up(ID)
+    statuses.set(ID, 'stopped')
+    service.onServerStatus({ serverId: ID, status: 'stopped' })
+    await service.whenIdle()
+
+    api.rundata.mockRejectedValueOnce(new AppError('NETWORK', 'Could not reach playit.gg'))
+    await up(ID2)
+    expect(agent.start).toHaveBeenCalledTimes(1)
+    expect(service.status(ID2)).toMatchObject({
+      state: 'error',
+      message:
+        'Could not secure your other playit tunnels before sharing: Could not reach playit.gg'
+    })
+
+    await service.retry(ID2)
+    expect(agent.start).toHaveBeenCalledTimes(2)
+    expect(api.setTunnelPort).toHaveBeenCalledWith(
+      'k3y',
+      store.get(ID).tunnel?.tunnelId,
+      DISABLED_LOCAL_PORT
+    )
+  })
+
+  it('treats a rejected key while securing tunnels as unlinked', async () => {
+    const { service, api, account, agent, up } = await setup()
+    await service.setShared(ID, true)
+    api.rundata.mockRejectedValueOnce(new AppError('PLAYIT_UNAUTHORIZED', UNLINKED_MESSAGE))
+    await up(ID)
+    expect(agent.start).not.toHaveBeenCalled()
+    expect(account.unlink).toHaveBeenCalled()
+    expect(service.status(ID)).toMatchObject({ state: 'error', message: UNLINKED_MESSAGE })
+  })
+
   it('does not repoint a tunnel that is already blanked', async () => {
     const { service, api, up, statuses } = await setup()
     await service.setShared(ID, true)
@@ -417,7 +511,9 @@ describe('TunnelService', () => {
   it('treats a rejected key as unlinked', async () => {
     const { service, api, account, agent, up } = await setup()
     await service.setShared(ID, true)
-    api.rundata.mockRejectedValueOnce(new AppError('PLAYIT_UNAUTHORIZED', UNLINKED_MESSAGE))
+    api.rundata
+      .mockResolvedValueOnce({ agentId: AGENT, tunnels: [] })
+      .mockRejectedValueOnce(new AppError('PLAYIT_UNAUTHORIZED', UNLINKED_MESSAGE))
     await up(ID)
     expect(account.unlink).toHaveBeenCalled()
     expect(agent.stop).toHaveBeenCalled()

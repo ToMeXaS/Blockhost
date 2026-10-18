@@ -286,13 +286,54 @@ export class TunnelService {
         if (existing?.state === 'downloading') this.phases.delete(rec.id)
         else if (existing?.state === 'error' && !existing.permanent) this.phases.delete(rec.id)
       }
+      // The poll runs sync(), so a start refused below is tried again on the next tick.
+      this.startPoll()
+      if (!(await this.secureInactive(active))) return
       this.agentRunning = true
       await this.deps.agent.start()
-      this.poll = setInterval(() => {
-        void this.enqueue(() => this.refresh()).catch((err) => this.log(messageOf(err)))
-      }, this.deps.pollMs ?? ADDRESS_POLL_MS)
     }
     await this.refresh()
+  }
+
+  private startPoll(): void {
+    if (this.poll) return
+    this.poll = setInterval(() => {
+      void this.enqueue(() => this.sync()).catch((err) => this.log(messageOf(err)))
+    }, this.deps.pollMs ?? ADDRESS_POLL_MS)
+  }
+
+  /**
+   * Before playitd starts, every claimed tunnel whose server is not actively shared must
+   * already point at the disabled port, or the agent would forward it to whatever listens
+   * there. Fails closed: returns false (with error phases set) unless that is confirmed.
+   */
+  private async secureInactive(active: ServerRecord[]): Promise<boolean> {
+    let reason: string
+    try {
+      const secret = await this.deps.account.secret()
+      if (!secret) {
+        reason = NOT_LINKED_MESSAGE
+      } else {
+        const run = await this.deps.api.rundata(secret)
+        const failure = await this.blankInactive(run, secret, active)
+        if (failure === null) return true
+        reason = failure
+      }
+    } catch (err) {
+      if (isCode(err, 'PLAYIT_UNAUTHORIZED')) {
+        await this.handleUnauthorized()
+        return false
+      }
+      reason = messageOf(err)
+    }
+    const message = `Could not secure your other playit tunnels before sharing: ${reason}`
+    for (const rec of active) {
+      const existing = this.phases.get(rec.id)
+      if (existing?.state === 'error' && existing.permanent) continue
+      this.phases.set(rec.id, { state: 'error', message, permanent: false })
+    }
+    this.emitAll()
+    return false
   }
 
   private clearPoll(): void {
@@ -363,10 +404,16 @@ export class TunnelService {
   /**
    * playitd forwards every tunnel on the agent, so a tunnel whose server is not actively
    * shared must not point at a real port: another server could be listening there.
-   * Best effort; a failure is retried on the next refresh.
+   * Tries every tunnel and returns the first failure message, or null when all are blanked;
+   * a failure is retried on the next refresh.
    */
-  private async blankInactive(run: RunData, secret: string, active: ServerRecord[]): Promise<void> {
+  private async blankInactive(
+    run: RunData,
+    secret: string,
+    active: ServerRecord[]
+  ): Promise<string | null> {
     const activeIds = new Set(active.map((r) => r.id))
+    let failure: string | null = null
     for (const rec of this.deps.store.list()) {
       const tunnelId = rec.tunnel?.tunnelId
       if (!tunnelId || activeIds.has(rec.id)) continue
@@ -376,8 +423,10 @@ export class TunnelService {
         await this.deps.api.setTunnelPort(secret, tunnelId, DISABLED_LOCAL_PORT)
       } catch (err) {
         this.log(`could not blank playit tunnel ${tunnelId}: ${messageOf(err)}`)
+        failure ??= messageOf(err)
       }
     }
+    return failure
   }
 
   private async resolveTunnel(
