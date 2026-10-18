@@ -210,6 +210,9 @@ export function AppShell({
             You seem to be offline. Version lists may be out of date.
           </div>
         )}
+        <div className="px-8 pt-3 min-[1000px]:hidden">
+          <UpdateBanner />
+        </div>
         {children}
       </main>
     </div>
