@@ -72,4 +72,13 @@ describe('createHttpClient', () => {
     await expect(http.getJson(URL_A)).rejects.toMatchObject({ code: 'HTTP' })
     await expect(http.getText(URL_A)).rejects.toMatchObject({ code: 'HTTP' })
   })
+
+  it('includes the status code in HTTP errors', async () => {
+    const fetchImpl = (async () => jsonResponse({}, 404)) as unknown as typeof fetch
+    const http = createHttpClient({ fetchImpl })
+    await expect(http.getText('https://api.example.com/x')).rejects.toMatchObject({
+      code: 'HTTP',
+      details: { status: 404 }
+    })
+  })
 })

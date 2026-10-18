@@ -28,7 +28,8 @@ export function createHttpClient(opts: HttpClientOptions = {}): HttpClient {
     } catch (err) {
       throw new AppError('NETWORK', `Could not reach ${host}: ${(err as Error).message}`)
     }
-    if (!res.ok) throw new AppError('HTTP', `${host} returned HTTP ${res.status}`)
+    if (!res.ok)
+      throw new AppError('HTTP', `${host} returned HTTP ${res.status}`, { status: res.status })
     return res
   }
 
