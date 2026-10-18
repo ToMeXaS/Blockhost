@@ -86,7 +86,7 @@ function TunnelCard({
   async function unlink() {
     if (
       !window.confirm(
-        'Unlink your playit.gg account from Blockhost? Shared servers will stop being reachable through playit.gg.'
+        'Unlink your playit.gg account from Blockhost? Shared servers will stop being reachable through playit.gg. Your tunnels stay on your playit.gg account.'
       )
     )
       return
@@ -124,7 +124,7 @@ function TunnelCard({
         linking ? (
           <div className="flex items-center gap-3">
             <p className="text-sm text-zinc-300">Waiting for you to accept in the browser…</p>
-            <Button variant="ghost" onClick={() => void api.tunnelCancelLink()}>
+            <Button variant="ghost" onClick={() => void api.tunnelCancelLink().catch(() => {})}>
               Cancel
             </Button>
           </div>
@@ -204,7 +204,8 @@ function TunnelCard({
 
           <button
             type="button"
-            className="text-xs text-zinc-500 underline hover:text-zinc-300"
+            className="text-xs text-zinc-500 underline hover:text-zinc-300 disabled:opacity-50"
+            disabled={busy}
             onClick={() => void unlink()}
           >
             Unlink playit.gg
