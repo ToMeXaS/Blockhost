@@ -305,7 +305,7 @@ export function PlayersSection({ server }: { server: ServerView }) {
                           aria-label={`Remove ${op.name} from operators`}
                           onClick={() => void act({ type: 'deop', name: op.name })}
                         >
-                          Remove
+                          ×
                         </Button>
                       </span>
                     </Td>
@@ -372,7 +372,7 @@ export function PlayersSection({ server }: { server: ServerView }) {
                           aria-label={`Remove ${p.name} from the whitelist`}
                           onClick={() => void act({ type: 'whitelistRemove', name: p.name })}
                         >
-                          Remove
+                          ×
                         </Button>
                       </span>
                     </Td>
