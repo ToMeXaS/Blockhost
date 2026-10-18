@@ -96,6 +96,7 @@ export class PlayerService {
   private readonly tracker: PlayerTracker
   private readonly watchers = new Map<string, { close(): void }>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly queues = new Map<string, Promise<unknown>>()
 
   constructor(deps: PlayerServiceDeps) {
     this.deps = deps
@@ -136,12 +137,52 @@ export class PlayerService {
     if (action.type === 'kick') {
       throw new AppError('SERVER_NOT_RUNNING', 'Players can only be kicked while the server is running')
     }
+    await this.enqueue(serverId, () => this.editStopped(serverId, dir, action))
+    return this.getPlayers(serverId)
+  }
+
+  /**
+   * Serialises stopped-path edits for a server so a slow lookup/read in one
+   * edit cannot be clobbered by, or clobber, a concurrent one; also ensures
+   * each caller observes rejections independently of the others in the queue.
+   */
+  private enqueue<T>(serverId: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.queues.get(serverId) ?? Promise.resolve()
+    const run = previous.then(fn, fn)
+    this.queues.set(
+      serverId,
+      run.then(
+        () => undefined,
+        () => undefined
+      )
+    )
+    return run
+  }
+
+  private async editStopped(
+    serverId: string,
+    dir: string,
+    action: Exclude<PlayerAction, { type: 'kick' }>
+  ): Promise<void> {
     if (action.type === 'setWhitelistEnabled') {
+      this.assertStillEditable(serverId)
       await updateProperties(dir, { 'white-list': String(action.enabled) })
     } else {
-      await this.editList(dir, action)
+      await this.editList(serverId, dir, action)
     }
-    return this.getPlayers(serverId)
+  }
+
+  /**
+   * The status can change between when an edit started (e.g. during a slow
+   * Mojang lookup) and when it is about to write; re-check right before the
+   * write so a server that started in the meantime cannot have its load of
+   * the files clobbered by a stale edit.
+   */
+  private assertStillEditable(serverId: string): void {
+    const status = this.deps.processes.status(serverId)
+    if (status !== 'stopped' && status !== 'crashed') {
+      throw new AppError('SERVER_BUSY', 'The server started while saving; try again')
+    }
   }
 
   onStatus(event: ServerStatusEvent): void {
@@ -164,7 +205,7 @@ export class PlayerService {
     this.tracker.handleLines(event.serverId, event.lines)
   }
 
-  private async editList(dir: string, action: FileAction): Promise<void> {
+  private async editList(serverId: string, dir: string, action: FileAction): Promise<void> {
     const list = LIST_FOR[action.type]
     const file = await readList(dir, list)
     if (file.corrupt && !action.overwriteCorrupt) {
@@ -175,7 +216,10 @@ export class PlayerService {
       )
     }
     const next = await this.nextEntries(dir, action, file.entries)
-    if (next) await writeList(dir, list, next)
+    if (next) {
+      this.assertStillEditable(serverId)
+      await writeList(dir, list, next)
+    }
   }
 
   /** Returns the new list, or null when the action changes nothing. */

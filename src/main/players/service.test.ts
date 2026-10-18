@@ -199,6 +199,29 @@ describe('PlayerService while stopped', () => {
     })
     await expect(readFile(join(dir, 'whitelist.json'), 'utf8')).rejects.toThrow()
   })
+
+  it('blocks the write if the server starts while looking up the player, and leaves the file untouched', async () => {
+    const { service, processes, lookup, dir, readJson } = await setup()
+    await writeFile(join(dir, 'ops.json'), '[]')
+    lookup.mockImplementation(async (name: string) => {
+      processes.status.mockReturnValue('starting')
+      return { uuid: `uuid-${name.toLowerCase()}`, name }
+    })
+    await expect(service.action(ID, { type: 'op', name: 'Steve' })).rejects.toMatchObject({
+      code: 'SERVER_BUSY'
+    })
+    expect(await readJson('ops.json')).toEqual([])
+  })
+
+  it('serialises concurrent stopped-path edits instead of clobbering each other', async () => {
+    const { service, readJson } = await setup()
+    await Promise.all([
+      service.action(ID, { type: 'op', name: 'Steve' }),
+      service.action(ID, { type: 'op', name: 'Alex' })
+    ])
+    const ops = await readJson('ops.json')
+    expect((ops as { name: string }[]).map((o) => o.name).sort()).toEqual(['Alex', 'Steve'])
+  })
 })
 
 describe('PlayerService events', () => {
