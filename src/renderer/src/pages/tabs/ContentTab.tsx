@@ -52,6 +52,10 @@ export function ContentTab({ server }: { server: ServerView }) {
   }, [server.id])
   useEffect(() => loadInstalled(), [loadInstalled])
 
+  useEffect(() => {
+    if (server.status !== 'running') setRestartNeeded(false)
+  }, [server.status])
+
   const runSearch = useCallback(
     async (q: string, offset: number) => {
       const seq = ++searchSeq.current
@@ -211,7 +215,7 @@ export function ContentTab({ server }: { server: ServerView }) {
         </label>
         {searchError ? (
           <div className="flex items-center gap-3 text-sm text-zinc-400">
-            Can&apos;t reach Modrinth.
+            <ErrorText>{searchError}</ErrorText>
             <Button variant="ghost" onClick={() => void runSearch(query.trim(), 0)}>
               Retry
             </Button>
