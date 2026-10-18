@@ -2,6 +2,7 @@ import { isAbsolute } from 'node:path'
 import { isIP } from 'node:net'
 import { z } from 'zod'
 import { PLAYER_NAME_PATTERN, SERVER_TYPES } from '../shared/types'
+import { safeFileName } from './content/service'
 import { JAVA_MAJORS } from './java/requirements'
 
 export const idSchema = z.uuid()
@@ -131,3 +132,18 @@ export const playerActionSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('pardonIp'), ip: ipSchema, overwriteCorrupt }),
   z.strictObject({ type: z.literal('setWhitelistEnabled'), enabled: z.boolean(), overwriteCorrupt })
 ])
+
+export const contentQuerySchema = z.string().trim().max(100)
+export const contentOffsetSchema = z.number().int().min(0).max(10000)
+export const projectRefSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'Not a Modrinth project')
+export const contentFileSchema = z
+  .string()
+  .max(200)
+  .refine((name) => {
+    try {
+      safeFileName(name)
+      return true
+    } catch {
+      return false
+    }
+  }, 'Not a safe .jar file name')

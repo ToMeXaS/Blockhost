@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import type { EventChannel, EventPayloads } from '../shared/api'
 import type { ServerType } from '../shared/types'
 import { JsonCache } from './cache'
+import { createModrinthClient } from './content/modrinth'
+import { ContentService } from './content/service'
 import { probeJava } from './java/detect'
 import { extractZip } from './java/extract'
 import { JavaManager } from './java/manager'
@@ -38,6 +40,7 @@ export interface Services {
   servers: ServerService
   players: PlayerService
   tunnels: TunnelService
+  content: ContentService
 }
 
 export async function createServices(opts: {
@@ -45,8 +48,9 @@ export async function createServices(opts: {
   serversDir: string
   send: SendEvent
   openUrl: (url: string) => Promise<void>
+  appVersion: string
 }): Promise<Services> {
-  const { dataDir, serversDir, send, openUrl } = opts
+  const { dataDir, serversDir, send, openUrl, appVersion } = opts
   const http = createHttpClient({
     cache: new JsonCache(join(dataDir, 'cache')),
     onStale: (url) => send('net:offline', { url })
@@ -115,6 +119,14 @@ export async function createServices(opts: {
     agent: playitAgent,
     emit: (status) => send('tunnel:status', status)
   })
+  const content = new ContentService({
+    store,
+    processes,
+    client: createModrinthClient({
+      userAgent: `Blockhost/${appVersion} (github.com/ToMeXaS/blockhost)`
+    }),
+    download: downloadFile
+  })
   const servers = new ServerService({
     store,
     installer,
@@ -134,6 +146,7 @@ export async function createServices(opts: {
     processes,
     servers,
     players,
-    tunnels
+    tunnels,
+    content
   }
 }

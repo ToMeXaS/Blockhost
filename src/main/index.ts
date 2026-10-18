@@ -159,7 +159,8 @@ if (!app.requestSingleInstanceLock()) {
         dataDir: join(app.getPath('appData'), 'Blockhost'),
         serversDir: join(app.getPath('documents'), 'MinecraftServers'),
         send,
-        openUrl: (url) => shell.openExternal(url)
+        openUrl: (url) => shell.openExternal(url),
+        appVersion: app.getVersion()
       })
     } catch (err) {
       dialog.showErrorBox(

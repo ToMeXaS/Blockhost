@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   commandSchema,
+  contentFileSchema,
+  contentOffsetSchema,
+  contentQuerySchema,
   createServerSchema,
   httpsUrlSchema,
   javaMajorSchema,
   nameSchema,
   playerActionSchema,
+  projectRefSchema,
   propertyEntriesSchema,
   serverPatchSchema
 } from './schemas'
@@ -153,5 +157,21 @@ describe('playerActionSchema', () => {
     expect(() => playerActionSchema.parse({ type: 'nuke', name: 'Steve' })).toThrow()
     expect(() => playerActionSchema.parse({ type: 'op', name: 'Steve', level: 4 })).toThrow()
     expect(() => playerActionSchema.parse({ type: 'pardon', name: 'Steve', reason: 'x' })).toThrow()
+  })
+})
+
+describe('content schemas', () => {
+  it('validates queries, offsets, project refs and file names', () => {
+    expect(contentQuerySchema.parse('  sodium ')).toBe('sodium')
+    expect(() => contentQuerySchema.parse('x'.repeat(101))).toThrow()
+    expect(contentOffsetSchema.parse(40)).toBe(40)
+    for (const bad of [-1, 10001, 1.5]) expect(() => contentOffsetSchema.parse(bad)).toThrow()
+    expect(projectRefSchema.parse('AANobbMI')).toBe('AANobbMI')
+    expect(projectRefSchema.parse('fabric-api')).toBe('fabric-api')
+    for (const bad of ['', 'a b', '../x', 'x'.repeat(65)])
+      expect(() => projectRefSchema.parse(bad)).toThrow()
+    expect(contentFileSchema.parse('sodium-1.jar')).toBe('sodium-1.jar')
+    for (const bad of ['../x.jar', 'x.exe', 'CON.jar'])
+      expect(() => contentFileSchema.parse(bad)).toThrow()
   })
 })

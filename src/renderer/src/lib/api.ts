@@ -1,7 +1,10 @@
 import type { Bridge, EventChannel, EventPayloads, InvokeChannel } from '../../../shared/api'
 import type {
   ApiError,
+  ContentInstallResult,
+  ContentSearchResult,
   CreateServerInput,
+  InstalledContentList,
   NetInfo,
   PlayerAction,
   PlayerLists,
@@ -70,6 +73,15 @@ export const api = {
     call<TunnelStatus>('tunnel:setShared', id, enabled),
   tunnelStatus: (id: string) => call<TunnelStatus>('tunnel:status', id),
   tunnelRetry: (id: string) => call<TunnelStatus>('tunnel:retry', id),
+
+  contentSearch: (id: string, query: string, offset: number) =>
+    call<ContentSearchResult>('content:search', id, query, offset),
+  contentInstalled: (id: string) => call<InstalledContentList>('content:installed', id),
+  contentInstall: (id: string, projectId: string) =>
+    call<ContentInstallResult>('content:install', id, projectId),
+  contentUpdate: (id: string, fileName: string) =>
+    call<ContentInstallResult>('content:update', id, fileName),
+  contentRemove: (id: string, fileName: string) => call<void>('content:remove', id, fileName),
 
   installJava: (major: number) => call<void>('java:install', major),
   systemInfo: () => call<SystemInfo>('system:info'),

@@ -8,12 +8,16 @@ import { lanIps, publicIp } from './net/ip'
 import { isPortFree } from './net/port'
 import {
   commandSchema,
+  contentFileSchema,
+  contentOffsetSchema,
+  contentQuerySchema,
   createServerSchema,
   httpsUrlSchema,
   idSchema,
   javaMajorSchema,
   playerActionSchema,
   portSchema,
+  projectRefSchema,
   propertyEntriesSchema,
   serverPatchSchema,
   serverTypeSchema,
@@ -41,7 +45,8 @@ export function registerIpc(
   getWindow: () => BrowserWindow | null,
   updates: { status(): UpdateStatus; requestInstall(): void }
 ): void {
-  const { servers, installer, providers, javaManager, http, paths, players, tunnels } = services
+  const { servers, installer, providers, javaManager, http, paths, players, tunnels, content } =
+    services
 
   const openDialog = async (options: OpenDialogOptions): Promise<string | null> => {
     const win = getWindow()
@@ -101,6 +106,22 @@ export function registerIpc(
   )
   handle('tunnel:status', z.tuple([idSchema]), (id) => tunnels.status(id))
   handle('tunnel:retry', z.tuple([idSchema]), (id) => tunnels.retry(id))
+
+  handle(
+    'content:search',
+    z.tuple([idSchema, contentQuerySchema, contentOffsetSchema]),
+    (id, query, offset) => content.search(id, query, offset)
+  )
+  handle('content:installed', z.tuple([idSchema]), (id) => content.listInstalled(id))
+  handle('content:install', z.tuple([idSchema, projectRefSchema]), (id, projectId) =>
+    content.install(id, projectId)
+  )
+  handle('content:update', z.tuple([idSchema, contentFileSchema]), (id, fileName) =>
+    content.update(id, fileName)
+  )
+  handle('content:remove', z.tuple([idSchema, contentFileSchema]), (id, fileName) =>
+    content.remove(id, fileName)
+  )
 
   handle('java:install', z.tuple([javaMajorSchema]), async (major) => {
     await javaManager.ensure(major)
