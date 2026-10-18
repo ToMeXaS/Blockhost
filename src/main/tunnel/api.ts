@@ -226,18 +226,23 @@ export function createPlayitApi(
     async createTunnel(secret, { agentId, localPort, name }) {
       let r: Outcome<{ id: string }>
       try {
+        // /v1/tunnels/create answers "failed to parse body" to every request, so this uses
+        // the older endpoint; tunnels made here are read and repointed through the v1 calls.
         r = await call<{ id: string }>(
-          '/v1/tunnels/create',
+          '/tunnels/create',
           {
-            ports: { type: 'tunnel-type', details: 'minecraft-java' },
+            name,
+            tunnel_type: 'minecraft-java',
+            port_type: 'tcp',
+            port_count: 1,
             origin: {
               type: 'agent',
-              data: { agent_id: agentId, config: { fields: localFields(localPort) } }
+              data: { agent_id: agentId, local_ip: '127.0.0.1', local_port: localPort }
             },
             enabled: true,
             alloc: null,
-            name,
-            firewall_id: null
+            firewall_id: null,
+            proxy_protocol: null
           },
           secret
         )

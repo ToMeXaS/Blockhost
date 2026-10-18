@@ -205,25 +205,22 @@ describe('tunnels', () => {
       name: 'Blockhost SMP'
     })
     expect(id).toBe(TUNNEL)
-    expect(calls[0].url).toBe('https://api.test/v1/tunnels/create')
+    // playit's /v1/tunnels/create rejects every body with "failed to parse body"; the
+    // older endpoint below is the one that works (checked live on 2026-10-18).
+    expect(calls[0].url).toBe('https://api.test/tunnels/create')
     expect(calls[0].body).toEqual({
-      ports: { type: 'tunnel-type', details: 'minecraft-java' },
+      name: 'Blockhost SMP',
+      tunnel_type: 'minecraft-java',
+      port_type: 'tcp',
+      port_count: 1,
       origin: {
         type: 'agent',
-        data: {
-          agent_id: AGENT,
-          config: {
-            fields: [
-              { name: 'local_ip', value: '127.0.0.1' },
-              { name: 'local_port', value: '25570' }
-            ]
-          }
-        }
+        data: { agent_id: AGENT, local_ip: '127.0.0.1', local_port: 25570 }
       },
       enabled: true,
       alloc: null,
-      name: 'Blockhost SMP',
-      firewall_id: null
+      firewall_id: null,
+      proxy_protocol: null
     })
   })
 
