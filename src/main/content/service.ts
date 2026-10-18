@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { readdir, rm } from 'node:fs/promises'
+import { readdir, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import {
@@ -176,8 +176,8 @@ export class ContentService {
       const c = this.ctx(serverId)
       const manifest = await readManifest(c.rec.dir)
       const plan = await this.plan(c, manifest, projectIdOrSlug)
-      await this.apply(c, manifest, plan, null)
-      return this.result(c, plan)
+      const wrote = await this.apply(c, manifest, plan, null)
+      return this.result(c, plan, wrote)
     })
   }
 
@@ -199,11 +199,26 @@ export class ContentService {
       )[entry.sha1]
       if (!latest || latest.id === entry.versionId) return { installed: [], restartNeeded: false }
 
-      const others: Manifest = { version: 1, entries: manifest.entries.filter((e) => e !== entry) }
-      const plan = await this.plan(c, others, entry.projectId, latest.id)
-      if (plan[0]) plan[0].dependencyOf = entry.dependencyOf
-      await this.apply(c, others, plan, entry)
-      return this.result(c, plan)
+      // Exclude every manifest entry for this project (not just the one being updated) so the
+      // resolver doesn't mistake the project for already installed and skip it entirely.
+      const forPlan: Manifest = {
+        version: 1,
+        entries: manifest.entries.filter((e) => e.projectId !== entry.projectId)
+      }
+      const plan = await this.plan(c, forPlan, entry.projectId, latest.id)
+      if (plan[0]?.projectId !== entry.projectId) {
+        throw new AppError(
+          'CONTENT_NO_COMPATIBLE_VERSION',
+          `No compatible update was found for ${entry.title}.`
+        )
+      }
+      plan[0].dependencyOf = entry.dependencyOf
+
+      // Only drop the entry being replaced, so a duplicate entry for the same project
+      // (e.g. a second jar for the same mod) is left alone.
+      const base: Manifest = { version: 1, entries: manifest.entries.filter((e) => e !== entry) }
+      const wrote = await this.apply(c, base, plan, entry)
+      return this.result(c, plan, wrote)
     })
   }
 
@@ -212,6 +227,7 @@ export class ContentService {
       const c = this.ctx(serverId)
       this.requireStopped(c)
       const name = safeFileName(fileName)
+      this.requireStopped(c)
       await rm(join(c.folder, name), { force: true })
       const manifest = await readManifest(c.rec.dir)
       const entries = manifest.entries.filter((e) => e.fileName !== name)
@@ -266,33 +282,66 @@ export class ContentService {
     )
   }
 
-  /** Downloads the plan; `replacing` is the entry an update supersedes. */
+  /**
+   * Downloads the plan; `replacing` is the entry an update supersedes.
+   *
+   * Dependencies (plan index > 0) are downloaded before the root item (index 0), so a
+   * dependency failure never touches a file already on disk. When updating in place (the
+   * new root file keeps the old file's name), the root downloads to a temporary file next
+   * to it and is renamed over the old file only once every download has succeeded, so a
+   * mid-update failure never destroys or corrupts the old jar. Returns true if any file was
+   * actually written to disk.
+   */
   private async apply(
     c: Ctx,
     manifest: Manifest,
     plan: PlanItem[],
     replacing: ManifestEntry | null
-  ): Promise<void> {
+  ): Promise<boolean> {
+    if (plan.length === 0) return false
     const names = plan.map((item) => safeFileName(item.file.filename))
+    const rootName = names[0]
+    const sameNameUpdate = replacing !== null && rootName === replacing.fileName
+    const rootDest = join(c.folder, rootName)
+    const rootDownloadDest = sameNameUpdate ? `${rootDest}.blockhost-update` : rootDest
     const written: string[] = []
+
     try {
-      for (const [i, item] of plan.entries()) {
+      for (let i = 1; i < plan.length; i++) {
         const dest = join(c.folder, names[i])
-        const isReplacement = i === 0 && replacing !== null && names[i] === replacing.fileName
-        if (!isReplacement && (await pathExists(dest))) continue
+        if (await pathExists(dest)) continue
         await this.deps.download({
-          url: item.file.url,
+          url: plan[i].file.url,
           dest,
-          hash: { algo: 'sha512', value: item.file.sha512 }
+          hash: { algo: 'sha512', value: plan[i].file.sha512 }
         })
         written.push(dest)
       }
+
+      // An update always fetches a fresh root file; a plain install skips it if already present.
+      const skipRoot = replacing === null && (await pathExists(rootDest))
+      if (!skipRoot) {
+        await this.deps.download({
+          url: plan[0].file.url,
+          dest: rootDownloadDest,
+          hash: { algo: 'sha512', value: plan[0].file.sha512 }
+        })
+        written.push(rootDownloadDest)
+      }
+
+      // The server may have started while these downloads were in flight; re-check right
+      // before touching the old file so a race never leaves it replaced while running.
+      if (replacing) this.requireStopped(c)
     } catch (err) {
       for (const file of written) await rm(file, { force: true })
       throw err
     }
-    if (replacing && replacing.fileName !== names[0])
+
+    if (sameNameUpdate) {
+      await rename(rootDownloadDest, rootDest)
+    } else if (replacing && replacing.fileName !== rootName) {
       await rm(join(c.folder, replacing.fileName), { force: true })
+    }
 
     const entries = manifest.entries.filter((e) => !names.includes(e.fileName))
     plan.forEach((item, i) =>
@@ -306,23 +355,28 @@ export class ContentService {
         dependencyOf: item.dependencyOf
       })
     )
-    if (plan.length || replacing) await writeManifest(c.rec.dir, { version: 1, entries })
+    await writeManifest(c.rec.dir, { version: 1, entries })
+    return written.length > 0
   }
 
-  private result(c: Ctx, plan: PlanItem[]): ContentInstallResult {
+  private result(c: Ctx, plan: PlanItem[], wrote: boolean): ContentInstallResult {
     return {
       installed: plan.map((item, i) => ({
         title: item.title,
         versionNumber: item.versionNumber,
         asDependency: i > 0
       })),
-      restartNeeded: plan.length > 0 && this.isUp(c.rec.id)
+      restartNeeded: wrote && this.isUp(c.rec.id)
     }
   }
 
   private async jarFiles(folder: string): Promise<string[]> {
     try {
-      return (await readdir(folder)).filter((f) => f.toLowerCase().endsWith('.jar')).sort()
+      const entries = await readdir(folder, { withFileTypes: true })
+      return entries
+        .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.jar'))
+        .map((e) => e.name)
+        .sort()
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw err
