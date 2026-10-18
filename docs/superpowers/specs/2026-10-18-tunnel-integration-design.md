@@ -37,24 +37,40 @@ Checked against the playit-agent source and releases on 2026-10-18:
   sha256 `367fb813a20c67c7501e3921298ce51a641e5b25e6005f6059808f89404ba44b`,
   URL `https://github.com/playit-cloud/playit-agent/releases/download/v1.0.12/playit-windows-x86_64-signed.exe`.
 - `playitd` options: `--secret <key>` | `--secret-path <file>`,
-  `--socket-path <pipe>`, `-l/--log-path <file>`. A `.toml` secret file has
-  the form `secret_key = "<key>"`.
+  `--socket-path <pipe>`, `-l/--log-path <file>`. Without `-l` it logs to
+  stderr, which is how Blockhost reads its status. A `.toml` secret file has
+  the form `secret_key = "<key>"`. Its user-facing error lines include
+  "Could not connect to playit tunnel servers…", "Could not reach the playit
+  API…", "The configured playit secret is no longer valid…", "The playit API
+  rejected…", "Timed out while connecting to playit…"; success logs
+  "playit connected; tunnels loaded".
 - API base `https://api.playit.gg`; JSON POST; authenticated calls send
-  `Authorization: Agent-Key <secret>`.
+  `Authorization: Agent-Key <secret>`. Responses are an envelope
+  `{status: "success", data}` | `{status: "fail", data: "<Reason>"}` |
+  `{status: "error", data: {type: "auth"|"validation"|"path-not-found"|"internal", message}}`
+  (auth messages include `InvalidAgentKey`, `NoLongerValid`,
+  `ScopeNotAllowed`).
 - Claim flow (unauthenticated): random code → user visits
   `https://playit.gg/claim/<code>` → poll `POST /claim/setup
 {code, agent_type: "self-managed", version}` until `UserAccepted`
-  (other states: `WaitingForUserVisit`, `WaitingForUser`, `UserRejected`) →
-  `POST /claim/exchange {code}` returns `{secret_key}`.
-- `POST /agents/rundata` returns `agent_id`, `tunnels[]` (each with `id`,
-  `name`, `display_address`, local origin) and `pending[]`.
-- `POST /tunnels/create` accepts `tunnel_type: "minecraft-java"`,
-  `port_type: "tcp"`, `port_count: 1`,
-  `origin: {type: "agent", data: {agent_id, local_ip, local_port}}`,
-  `enabled: true`, optional `name`. `/tunnels/update`, `/tunnels/delete`
-  exist.
+  (other states: `WaitingForUserVisit`, `WaitingForUser`, `UserRejected`;
+  fail `CodeExpired`) → `POST /claim/exchange {code}` returns
+  `{secret_key}` (fail `NotAccepted` while waiting, `CodeExpired`,
+  `CodeNotFound`, `UserRejected`).
+- `POST /v1/agents/rundata` (what playitd itself uses) returns `agent_id`,
+  `tunnels[]` (each with `id`, `name`, `display_address`, `tunnel_type`,
+  `agent_config.fields[]` holding `local_ip` / `local_port`,
+  `disabled_reason`) and `pending[]`.
+- `POST /v1/tunnels/create {ports: {type: "tunnel-type", details:
+"minecraft-java"}, origin: {type: "agent", data: {agent_id, config:
+{fields: [{name: "local_ip", value}, {name: "local_port", value}]}}},
+enabled, alloc: null, name, firewall_id: null}` returns `{id}`; fail
+  reasons include `RequiresPlayitPremium`, `RequiresVerifiedAccount`,
+  `TunnelNameIsNotAscii`, `TunnelNameTooLong`.
+  `POST /v1/tunnels/config {tunnel_id, new_agent_id: null, new_config}`
+  changes the local port; `POST /tunnels/delete {tunnel_id}` deletes.
 
-**Unverified:** whether a self-managed agent's key may call `/tunnels/create`
+**Unverified:** whether a self-managed agent's key may call `/v1/tunnels/create`
 (vs. only the website session). The first implementation task is a live check;
 §4.5 is the fallback if it may not.
 
@@ -182,7 +198,9 @@ Event: `tunnel:status` as above.
 
 New error codes: `PLAYIT_NOT_LINKED`, `PLAYIT_UNAUTHORIZED`, `PLAYIT_API`,
 `PLAYIT_TUNNEL_LIMIT`, `PLAYIT_CREATE_FORBIDDEN`, `PLAYIT_CLAIM_REJECTED`,
-`PLAYIT_CLAIM_EXPIRED`, `CANCELLED`.
+`PLAYIT_CLAIM_EXPIRED`, `CANCELLED`, and `PLAYIT_FORBIDDEN` (an auth
+error that is not an invalid key, e.g. `ScopeNotAllowed`; `createTunnel`
+turns it into `PLAYIT_CREATE_FORBIDDEN`).
 
 ## 6. UI — Connect tab
 
