@@ -180,14 +180,15 @@ Shown above every section of a selected server:
   RAM (e.g. "4 GB"). Clicking the address copies it and shows "Copied".
 - Right-aligned actions: running → **Restart** (secondary) and **Stop**
   (danger); stopped/crashed → **Start** (primary); starting/stopping →
-  the relevant button disabled. **Force kill** lives in a "⋯" `Menu`,
-  enabled while starting/running/stopping, still behind the existing
-  confirmation.
+  the relevant button disabled. **Force kill** lives in a "⋯" `Menu` and
+  keeps today's rule: the item is enabled only after the server has been
+  stopping for 30 seconds.
 
 ## 7. Overview section (new)
 
 `src/renderer/src/pages/sections/OverviewSection.tsx`. A 2-column card
-grid (1 column below 1100px main-area width), built only from existing
+grid (1 column below a 1000px window width, so the default 1100px window
+gets 2 columns), built only from existing
 renderer APIs:
 
 - **Status**: state; uptime counted in the renderer from the moment this
@@ -195,8 +196,9 @@ renderer APIs:
   the app opened and no start was observed, formatted by
   `formatUptime(ms)` in `lib/format`); port; "Shared via playit" /
   "Not shared".
-- **Players**: online players with head icons (same data source as the
-  Players section), "N / max online" where max is `max-players` from the
+- **Players**: online players with a letter avatar (first letter on a
+  colour picked from the name; no skin images, so no CSP change), from the
+  same data source as the Players section, "N / max online" where max is `max-players` from the
   server properties (just "N online" if unreadable), and "Manage
   players →". Empty: "No one online".
 - **Console preview**: the last 12 log lines with level colours and "Open
@@ -210,11 +212,15 @@ renderer APIs:
 - Full-height panel, `--color-console`, mono 13px.
 - Level detection by `parseLogLevel(line)` in
   `src/renderer/src/lib/logLevel.ts`, matching Minecraft's
-  `[HH:MM:SS] [thread/LEVEL]` prefix → `info | warn | error | chat | cmd |
-plain`. Chat is an INFO line whose message starts with `<name>`; `cmd`
-  marks lines the user sent from this console (echoed as `> command`).
-  Tag colours: info `--color-info`, warn `--color-warn`, error
-  `--color-danger`, chat `--color-ok-text`, cmd `--color-accent`.
+  `[HH:MM:SS] [thread/LEVEL]` and Paper's `[HH:MM:SS LEVEL]` prefixes →
+  `info | warn | error | chat | cmd | system | plain`. Chat is an INFO
+  line whose message starts with `<name>`; `cmd` marks echoed commands
+  (lines starting `> `); `system` marks Blockhost's own `[Blockhost]`
+  lines. Lines without a prefix keep today's keyword fallback (ERROR,
+  SEVERE, FATAL or Exception → error; WARN → warn). Colours: info
+  `--color-info`, warn `--color-warn`, error `--color-danger`, chat
+  `--color-ok-text`, cmd `--color-accent`, system `--color-info`, plain
+  `--color-text-2`.
 - Filter chips: All / Warnings (warn + error) / Chat.
 - Auto-scroll while at the bottom; when scrolled up a "Jump to latest"
   button appears.
@@ -236,7 +242,8 @@ running, quick Start/Stop); clicking a card opens that server. Empty: a
 centred card with the logo and "Create your first server".
 
 **New server wizard**: same steps and logic in a centred card (max 720px)
-with a step indicator (1 Type · 2 Version · 3 Settings · 4 Review); server
+with a step indicator matching its existing three steps (1 Type &
+version · 2 Settings · 3 Install); server
 types as selectable tiles with a one-line description each.
 
 ## 10. Testing
@@ -250,7 +257,8 @@ types as selectable tiles with a one-line description each.
   Vanilla, Paper and Fabric servers; the switcher changes servers and
   remembers sections; console filters and command history work; fonts
   render with the network off; layout works at 860px and the sidebar
-  collapses below 1000px; Force kill still asks first.
+  collapses below 1000px; Force kill appears in "⋯" after 30 s of
+  stopping.
 
 ## 11. Order of work
 
