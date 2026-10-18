@@ -129,9 +129,12 @@ function TunnelCard({
             </Button>
           </div>
         ) : (
-          <Button variant="primary" disabled={busy} onClick={() => void link()}>
-            Link playit.gg account
-          </Button>
+          <div className="space-y-2">
+            {status?.state === 'error' && status.message && <ErrorText>{status.message}</ErrorText>}
+            <Button variant="primary" disabled={busy} onClick={() => void link()}>
+              Link playit.gg account
+            </Button>
+          </div>
         )
       ) : (
         <>
