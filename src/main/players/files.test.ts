@@ -105,7 +105,9 @@ describe('readList', () => {
 
   it('maps missing fields to safe defaults', () => {
     expect(toOps([{ name: 'Steve' }])).toEqual([{ uuid: '', name: 'Steve', level: 4 }])
-    expect(toPlayerBans([{ name: 'X' }])).toEqual([{ uuid: '', name: 'X', reason: '', created: '' }])
+    expect(toPlayerBans([{ name: 'X' }])).toEqual([
+      { uuid: '', name: 'X', reason: '', created: '' }
+    ])
   })
 })
 
@@ -114,7 +116,10 @@ describe('writeList', () => {
     const dir = await tempDir()
     await writeFile(join(dir, 'ops.json'), OPS)
     const { entries } = await readList(dir, 'ops')
-    await writeList(dir, 'ops', [...entries, { uuid: 'u2', name: 'Alex', level: 4, bypassesPlayerLimit: false }])
+    await writeList(dir, 'ops', [
+      ...entries,
+      { uuid: 'u2', name: 'Alex', level: 4, bypassesPlayerLimit: false }
+    ])
 
     const written = JSON.parse(await readFile(join(dir, 'ops.json'), 'utf8'))
     expect(written).toEqual([

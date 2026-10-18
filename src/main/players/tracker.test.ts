@@ -50,7 +50,9 @@ describe('PlayerTracker', () => {
       '[14:03:05 INFO]: There are 2 of a max of 20 players online: Steve, alex_99'
     ])
     expect(tracker.online(ID)).toEqual(['alex_99', 'Steve'])
-    tracker.handleLines(ID, ['[14:03:06] [Server thread/INFO]: There are 0 of a max of 20 players online: '])
+    tracker.handleLines(ID, [
+      '[14:03:06] [Server thread/INFO]: There are 0 of a max of 20 players online: '
+    ])
     expect(tracker.online(ID)).toEqual([])
     expect(onChange).toHaveBeenCalledTimes(3)
   })

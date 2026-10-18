@@ -117,7 +117,8 @@ export class PlayerService {
     ])
     const files = { ops, whitelist, bannedPlayers, bannedIps }
     return {
-      online: this.deps.processes.status(serverId) === 'running' ? this.tracker.online(serverId) : [],
+      online:
+        this.deps.processes.status(serverId) === 'running' ? this.tracker.online(serverId) : [],
       ops: toOps(ops.entries),
       whitelist: toWhitelist(whitelist.entries),
       whitelistEnabled: props.find((e) => e.key === 'white-list')?.value === 'true',
@@ -143,7 +144,10 @@ export class PlayerService {
       return this.getPlayers(serverId)
     }
     if (action.type === 'kick') {
-      throw new AppError('SERVER_NOT_RUNNING', 'Players can only be kicked while the server is running')
+      throw new AppError(
+        'SERVER_NOT_RUNNING',
+        'Players can only be kicked while the server is running'
+      )
     }
     await this.enqueue(serverId, () => this.editStopped(serverId, dir, action))
     return this.getPlayers(serverId)
