@@ -183,13 +183,11 @@ export class TunnelService {
       void this.enqueue(() => this.refresh()).catch((err) => this.log(messageOf(err)))
     }
     if (event.state === 'stopped' && this.agentRunning) {
-      void this
-        .enqueue(async () => {
-          this.agentRunning = false
-          this.clearPoll()
-          await this.sync()
-        })
-        .catch((err) => this.log(messageOf(err)))
+      void this.enqueue(async () => {
+        this.agentRunning = false
+        this.clearPoll()
+        await this.sync()
+      }).catch((err) => this.log(messageOf(err)))
       return
     }
     this.emitActive()
@@ -341,6 +339,7 @@ export class TunnelService {
         .map((r) => r.tunnel?.tunnelId)
         .filter((id): id is string => !!id)
     )
+    await this.blankInactive(run, secret, active)
     for (const rec of active) {
       const existing = this.phases.get(rec.id)
       if (existing?.state === 'error' && existing.permanent) continue
@@ -356,6 +355,26 @@ export class TunnelService {
       }
     }
     this.emitAll()
+  }
+
+  /**
+   * playitd forwards every tunnel on the agent, so a tunnel whose server is not actively
+   * shared must not point at a real port: another server could be listening there.
+   * Best effort; a failure is retried on the next refresh.
+   */
+  private async blankInactive(run: RunData, secret: string, active: ServerRecord[]): Promise<void> {
+    const activeIds = new Set(active.map((r) => r.id))
+    for (const rec of this.deps.store.list()) {
+      const tunnelId = rec.tunnel?.tunnelId
+      if (!tunnelId || activeIds.has(rec.id)) continue
+      const tunnel = run.tunnels.find((t) => t.id === tunnelId)
+      if (!tunnel || tunnel.localPort === DISABLED_LOCAL_PORT) continue
+      try {
+        await this.deps.api.setTunnelPort(secret, tunnelId, DISABLED_LOCAL_PORT)
+      } catch (err) {
+        this.log(`could not blank playit tunnel ${tunnelId}: ${messageOf(err)}`)
+      }
+    }
   }
 
   private async resolveTunnel(

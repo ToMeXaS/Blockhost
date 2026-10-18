@@ -113,7 +113,7 @@ src/main/tunnel/
 
 - `claimSetup(code)`, `claimExchange(code)` — no auth.
 - `rundata(secret)`, `createTunnel(secret, {agentId, localPort, name})`,
-  `updateTunnelPort(secret, tunnelId, localPort)`,
+  `setTunnelPort(secret, tunnelId, localPort)`,
   `deleteTunnel(secret, tunnelId)` — `Authorization: Agent-Key <secret>`.
 - Errors: network → `NETWORK`; HTTP 401/403 or an auth-failure body →
   `PLAYIT_UNAUTHORIZED`; API `fail` bodies → `PLAYIT_API` with the reason in
@@ -159,11 +159,14 @@ tunnelId?: string; address?: string }` (persisted in `servers.json`).
   starts sharing immediately; disabling stops traffic for that server.
 - Server status → agent: the agent runs while at least one server with
   `tunnel.enabled` is `starting`/`running`; it stops when the last one
-  stops (a tunnel's traffic only reaches a running server anyway).
+  stops. playitd forwards every tunnel on the agent, so the tunnel of a
+  server that is not actively shared (sharing off, or the server stopped) is
+  pointed at local port 1, where nothing listens; it is pointed back at the
+  server's port when the server is shared and running again.
 - Ensuring the tunnel when sharing starts:
   1. `rundata` → `agent_id` and existing tunnels.
   2. If `tunnelId` is stored and present in rundata, reuse it; if its local
-     port differs from `ServerRecord.port`, `updateTunnelPort`.
+     port differs from `ServerRecord.port`, `setTunnelPort`.
   3. Else create `minecraft-java` → `127.0.0.1:<port>`, name
      `Blockhost: <server name>`; store `tunnelId`.
   4. Fallback when create returns `PLAYIT_CREATE_FORBIDDEN`: state
@@ -176,7 +179,7 @@ tunnelId?: string; address?: string }` (persisted in `servers.json`).
   `tunnel.address` so it shows immediately next time.
 - `PLAYIT_TUNNEL_LIMIT` → error "Your playit.gg account has no free tunnels
   left. Remove one on playit.gg or turn sharing off for another server."
-- Port change of a shared server → `updateTunnelPort` on next share start.
+- Port change of a shared server → `setTunnelPort` on next share start.
 - Server deletion → best-effort `deleteTunnel` when `tunnelId` is set
   (failure is logged, never blocks deletion).
 - Emits `tunnel:status { serverId, state, address?, message? }` with

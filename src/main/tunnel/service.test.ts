@@ -317,6 +317,58 @@ describe('TunnelService', () => {
     expect(api.setTunnelPort).toHaveBeenCalledWith('k3y', tunnelId, 25565)
   })
 
+  it('points the tunnel of a shared but stopped server at the disabled port', async () => {
+    const { service, api, store, up, statuses, tunnels } = await setup()
+    await service.setShared(ID, true)
+    await service.setShared(ID2, true)
+    await up(ID)
+    await up(ID2)
+    const tunnelId = store.get(ID).tunnel?.tunnelId
+    expect(tunnels.find((t) => t.id === tunnelId)?.localPort).toBe(25565)
+    statuses.set(ID, 'stopped')
+    service.onServerStatus({ serverId: ID, status: 'stopped' })
+    await service.whenIdle()
+    expect(api.setTunnelPort).toHaveBeenCalledWith('k3y', tunnelId, DISABLED_LOCAL_PORT)
+    expect(tunnels.find((t) => t.id === tunnelId)?.localPort).toBe(DISABLED_LOCAL_PORT)
+
+    await up(ID)
+    expect(api.setTunnelPort).toHaveBeenLastCalledWith('k3y', tunnelId, 25565)
+    expect(tunnels.find((t) => t.id === tunnelId)?.localPort).toBe(25565)
+  })
+
+  it('retries a failed blank on the next poll', async () => {
+    vi.useFakeTimers()
+    const { service, api, store, up, statuses, tunnels } = await setup()
+    await service.setShared(ID, true)
+    await service.setShared(ID2, true)
+    await up(ID)
+    await up(ID2)
+    const tunnelId = store.get(ID).tunnel?.tunnelId
+    api.setTunnelPort.mockRejectedValueOnce(new Error('offline'))
+    statuses.set(ID, 'stopped')
+    service.onServerStatus({ serverId: ID, status: 'stopped' })
+    await service.whenIdle()
+    expect(tunnels.find((t) => t.id === tunnelId)?.localPort).toBe(25565)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await service.whenIdle()
+    expect(tunnels.find((t) => t.id === tunnelId)?.localPort).toBe(DISABLED_LOCAL_PORT)
+  })
+
+  it('does not repoint a tunnel that is already blanked', async () => {
+    const { service, api, up, statuses } = await setup()
+    await service.setShared(ID, true)
+    await service.setShared(ID2, true)
+    await up(ID)
+    await up(ID2)
+    statuses.set(ID, 'stopped')
+    service.onServerStatus({ serverId: ID, status: 'stopped' })
+    await service.whenIdle()
+    const calls = api.setTunnelPort.mock.calls.length
+    service.onServerStatus({ serverId: ID2, status: 'running' })
+    await service.whenIdle()
+    expect(api.setTunnelPort.mock.calls.length).toBe(calls)
+  })
+
   it('does not fail setShared when disabling fails to repoint the tunnel', async () => {
     const { service, api, up } = await setup()
     await service.setShared(ID, true)
