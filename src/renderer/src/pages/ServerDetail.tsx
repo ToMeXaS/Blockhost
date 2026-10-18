@@ -1,19 +1,21 @@
 import { useEffect, useState } from 'react'
-import type { ServerView } from '../../../shared/types'
+import { CONTENT_LABELS, type ServerView } from '../../../shared/types'
 import { InstallPanel } from '../components/InstallPanel'
 import { Button, ErrorText, StatusBadge, TypeBadge } from '../components/ui'
 import { api, ApiCallError, errorMessage } from '../lib/api'
 import { ConnectTab } from './tabs/ConnectTab'
 import { ConsoleTab } from './tabs/ConsoleTab'
+import { ContentTab } from './tabs/ContentTab'
 import { PlayersTab } from './tabs/PlayersTab'
 import { PropertiesTab } from './tabs/PropertiesTab'
 import { SettingsTab } from './tabs/SettingsTab'
 
-type Tab = 'console' | 'players' | 'properties' | 'settings' | 'connect'
+type Tab = 'console' | 'players' | 'content' | 'properties' | 'settings' | 'connect'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'console', label: 'Console' },
   { id: 'players', label: 'Players' },
+  { id: 'content', label: 'Mods' },
   { id: 'properties', label: 'Properties' },
   { id: 'settings', label: 'Settings' },
   { id: 'connect', label: 'Connect' }
@@ -60,6 +62,10 @@ export function ServerDetail({ server, onBack, onChanged, onDeleted }: Props) {
 
   const ready = server.installState === 'ready'
   const up = server.status === 'starting' || server.status === 'running'
+  const contentLabel = CONTENT_LABELS[server.type]
+  const tabs = TABS.filter((t) => t.id !== 'content' || contentLabel).map((t) =>
+    t.id === 'content' && contentLabel ? { ...t, label: contentLabel } : t
+  )
 
   return (
     <div className="flex h-full flex-col">
@@ -162,7 +168,7 @@ export function ServerDetail({ server, onBack, onChanged, onDeleted }: Props) {
       ) : (
         <>
           <nav className="flex gap-1 border-b border-zinc-800 px-6">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <button
                 key={t.id}
                 type="button"
@@ -182,6 +188,7 @@ export function ServerDetail({ server, onBack, onChanged, onDeleted }: Props) {
           >
             {tab === 'console' && <ConsoleTab server={server} />}
             {tab === 'players' && <PlayersTab server={server} />}
+            {tab === 'content' && contentLabel && <ContentTab server={server} />}
             {tab === 'properties' && <PropertiesTab server={server} onChanged={onChanged} />}
             {tab === 'settings' && (
               <SettingsTab server={server} onChanged={onChanged} onDeleted={onDeleted} />
