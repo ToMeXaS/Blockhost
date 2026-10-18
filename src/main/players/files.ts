@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { IpBan, OpEntry, PlayerBan, PlayerListName, PlayerRef } from '../../shared/types'
+import { AppError } from '../errors'
 import { pathExists, writeFileAtomic } from '../util/fs'
 
 export const LIST_FILES: Record<PlayerListName, string> = {
@@ -25,9 +26,24 @@ const str = (value: unknown): string => (typeof value === 'string' ? value : '')
 export async function readList(dir: string, list: PlayerListName): Promise<ListFile> {
   const file = join(dir, LIST_FILES[list])
   if (!(await pathExists(file))) return { entries: [], corrupt: false }
+
+  let text: string
   try {
-    const text = (await readFile(file, 'utf8')).replace(/^﻿/, '')
-    if (text.trim() === '') return { entries: [], corrupt: false }
+    text = (await readFile(file, 'utf8')).replace(/^﻿/, '')
+  } catch {
+    // The file exists but could not be read right now (e.g. locked by
+    // antivirus/OneDrive, or a transient Windows EBUSY/EPERM/EACCES). This is
+    // not the same as a corrupt file: don't let the caller treat it as safe
+    // to overwrite with a fresh, near-empty list.
+    throw new AppError(
+      'LIST_FILE_UNREADABLE',
+      `${LIST_FILES[list]} could not be read right now. Try again in a moment.`,
+      { list }
+    )
+  }
+
+  if (text.trim() === '') return { entries: [], corrupt: false }
+  try {
     const parsed: unknown = JSON.parse(text)
     if (!Array.isArray(parsed) || !parsed.every(isEntry)) return { entries: [], corrupt: true }
     return { entries: parsed, corrupt: false }

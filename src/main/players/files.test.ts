@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { tempDir } from '../test-utils'
@@ -90,6 +90,17 @@ describe('readList', () => {
     expect(await readList(dir, 'whitelist')).toEqual({ entries: [], corrupt: true })
     await writeFile(join(dir, 'banned-ips.json'), '["203.0.113.7"]')
     expect(await readList(dir, 'bannedIps')).toEqual({ entries: [], corrupt: true })
+  })
+
+  it('propagates an unreadable (but not merely unparseable) file instead of flagging it corrupt', async () => {
+    const dir = await tempDir()
+    // A directory in place of the file makes the read itself fail (EISDIR),
+    // as opposed to succeeding and then failing to parse.
+    await mkdir(join(dir, 'ops.json'))
+    await expect(readList(dir, 'ops')).rejects.toMatchObject({
+      code: 'LIST_FILE_UNREADABLE',
+      details: { list: 'ops' }
+    })
   })
 
   it('maps missing fields to safe defaults', () => {
