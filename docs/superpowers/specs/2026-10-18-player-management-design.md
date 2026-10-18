@@ -13,6 +13,7 @@ This is sub-project 1 of 3 (player management → tunnel integration →
 mod/plugin browser); each gets its own spec, plan, and implementation.
 
 ### In scope
+
 - Online-now list (from console join/leave lines) with Kick / Op / Ban per player.
 - Operators: list, add, remove.
 - Whitelist: list, add, remove, on/off toggle.
@@ -20,6 +21,7 @@ mod/plugin browser); each gets its own spec, plan, and implementation.
 - Works for all six server types, running or stopped.
 
 ### Out of scope
+
 Per-player stats (playtime, last seen), op permission levels other than the
 server default, temporary bans, RCON.
 
@@ -75,7 +77,7 @@ Reads and writes the vanilla formats:
 ### 3.2 `uuid.ts`
 
 - `online-mode=true` (the default): `GET
-  https://api.mojang.com/users/profiles/minecraft/<name>`; a 404 or 204 raises
+https://api.mojang.com/users/profiles/minecraft/<name>`; a 404 or 204 raises
   `PLAYER_NOT_FOUND` ("No Minecraft account named X"). The returned undashed id
   is formatted as a dashed UUID; the canonical name from the response is stored.
 - `online-mode=false`: offline UUID — version-3 UUID of the MD5 of
@@ -103,7 +105,7 @@ stripping):
   the tracker otherwise relies on. Instead, `PlayerService.getPlayers` sends
   `list` for a running server whenever something looks at the tab, throttled
   to at most once per 30 s per server; the reply `There are N of a max of M
-  players online: a, b` replaces the whole set. This covers loaders whose
+players online: a, b` replaces the whole set. This covers loaders whose
   join lines differ or are suppressed.
 - Cleared when the server stops or crashes.
 - Emits a change notification whenever the set changes.
@@ -116,6 +118,7 @@ action(serverId, action: PlayerAction): Promise<PlayerLists>
 ```
 
 `PlayerLists`:
+
 ```ts
 {
   online: string[]            // empty unless running
@@ -130,22 +133,23 @@ action(serverId, action: PlayerAction): Promise<PlayerLists>
 
 `PlayerAction` (discriminated union on `type`):
 
-| type                  | fields              | running command          | stopped behaviour                         |
-|-----------------------|---------------------|--------------------------|-------------------------------------------|
-| `op`                  | name                | `op <name>`              | add to ops.json                           |
-| `deop`                | name                | `deop <name>`            | remove from ops.json                      |
-| `whitelistAdd`        | name                | `whitelist add <name>`   | add to whitelist.json                     |
-| `whitelistRemove`     | name                | `whitelist remove <name>`| remove from whitelist.json                |
-| `setWhitelistEnabled` | enabled             | `whitelist on` / `off`   | set `white-list` in server.properties     |
-| `ban`                 | name, reason?       | `ban <name> [reason]`    | add to banned-players.json                |
-| `pardon`              | name                | `pardon <name>`          | remove from banned-players.json           |
-| `banIp`               | ip, reason?         | `ban-ip <ip> [reason]`   | add to banned-ips.json                    |
-| `pardonIp`            | ip                  | `pardon-ip <ip>`         | remove from banned-ips.json               |
-| `kick`                | name, reason?       | `kick <name> [reason]`   | rejected (`SERVER_NOT_RUNNING`)           |
+| type                  | fields        | running command           | stopped behaviour                     |
+| --------------------- | ------------- | ------------------------- | ------------------------------------- |
+| `op`                  | name          | `op <name>`               | add to ops.json                       |
+| `deop`                | name          | `deop <name>`             | remove from ops.json                  |
+| `whitelistAdd`        | name          | `whitelist add <name>`    | add to whitelist.json                 |
+| `whitelistRemove`     | name          | `whitelist remove <name>` | remove from whitelist.json            |
+| `setWhitelistEnabled` | enabled       | `whitelist on` / `off`    | set `white-list` in server.properties |
+| `ban`                 | name, reason? | `ban <name> [reason]`     | add to banned-players.json            |
+| `pardon`              | name          | `pardon <name>`           | remove from banned-players.json       |
+| `banIp`               | ip, reason?   | `ban-ip <ip> [reason]`    | add to banned-ips.json                |
+| `pardonIp`            | ip            | `pardon-ip <ip>`          | remove from banned-ips.json           |
+| `kick`                | name, reason? | `kick <name> [reason]`    | rejected (`SERVER_NOT_RUNNING`)       |
 
 All actions also accept optional `overwriteCorrupt?: boolean` (stopped path only).
 
 Input validation (zod, in `schemas.ts`):
+
 - `name`: `^[A-Za-z0-9_]{3,16}$`.
 - `ip`: IPv4 dotted quad or IPv6 (validated with `net.isIP`).
 - `reason`: max 200 chars, no newlines or control characters.
@@ -162,10 +166,12 @@ when the server stops.
 ## 4. IPC
 
 New invoke channels (zod-validated like the existing ones):
+
 - `players:get(serverId)` → `PlayerLists`
 - `players:action(serverId, action)` → `PlayerLists`
 
 New event:
+
 - `players:changed { serverId }` — online set changed or a list file was
   rewritten; the renderer re-fetches.
 
@@ -201,6 +207,7 @@ New tab on the server detail page, between Console and Properties.
 ## 6. Testing
 
 Vitest, TDD.
+
 - `files.ts`: round-trip real vanilla file samples; unknown fields preserved;
   missing file → empty; corrupt file → flagged and edits refused.
 - `uuid.ts`: offline UUIDs match Java's `UUID.nameUUIDFromBytes` output

@@ -10,6 +10,7 @@ Minecraft servers in a few clicks: pick a server type and version, choose RAM an
 port, accept the EULA, and get a running server with a live console.
 
 ### In scope (v1)
+
 - Server types: Vanilla, Paper, Purpur, Fabric, Forge, NeoForge.
 - Automatic Java (Eclipse Temurin via Adoptium) per server, with optional custom Java path override.
 - Dashboard: server list, start/stop/restart, live console with command input,
@@ -18,6 +19,7 @@ port, accept the EULA, and get a running server with a live console.
 - Windows NSIS installer.
 
 ### Out of scope (v1)
+
 Backups, player management (ops/whitelist/bans UI), mod/plugin browser, UPnP,
 tunnels (playit.gg etc.), Bedrock, app auto-update, macOS/Linux builds
 (code stays portable; not tested).
@@ -70,23 +72,29 @@ src/
 
 ```ts
 interface ServerProvider {
-  type: ServerType; // 'vanilla' | 'paper' | 'purpur' | 'fabric' | 'forge' | 'neoforge'
-  listVersions(): Promise<{ id: string; stable: boolean }[]>;
-  listBuilds?(version: string): Promise<{ id: string; stable: boolean }[]>;
+  type: ServerType // 'vanilla' | 'paper' | 'purpur' | 'fabric' | 'forge' | 'neoforge'
+  listVersions(): Promise<{ id: string; stable: boolean }[]>
+  listBuilds?(version: string): Promise<{ id: string; stable: boolean }[]>
   install(opts: {
-    dir: string; version: string; build?: string; javaPath: string;
-    onProgress: (p: InstallProgress) => void;
-  }): Promise<LaunchSpec>;
+    dir: string
+    version: string
+    build?: string
+    javaPath: string
+    onProgress: (p: InstallProgress) => void
+  }): Promise<LaunchSpec>
 }
 
 // Arguments placed after the JVM memory/extra args and before `nogui`.
 // e.g. ['-jar', 'server.jar'] or ['@libraries/net/neoforged/neoforge/26.3.0.88/win_args.txt']
-interface LaunchSpec { args: string[] }
+interface LaunchSpec {
+  args: string[]
+}
 ```
 
 Adding a new server type = one new provider file + registration.
 
 Per-provider notes (APIs verified 2026-10-17; Minecraft now uses `26.x` version numbers alongside legacy `1.x`):
+
 - **Vanilla**: `piston-meta.mojang.com/mc/game/version_manifest_v2.json` -> version JSON -> `downloads.server` (sha1 verified). Versions without a server download fail install with a clear message.
 - **Paper**: Fill v3 API `fill.papermc.io/v3/projects/paper` (`/versions`, `/versions/{v}/builds`, `downloads["server:default"]` with sha256).
 - **Purpur**: `api.purpurmc.org/v2/purpur` (`/{v}` builds, `/{v}/{build}` md5, `/{v}/{build}/download`).
@@ -107,19 +115,19 @@ Per-provider notes (APIs verified 2026-10-17; Minecraft now uses `26.x` version 
 
 ```ts
 interface ServerRecord {
-  id: string;            // uuid
-  name: string;
-  type: ServerType;
-  mcVersion: string;
-  build?: string;
-  dir: string;           // default Documents/MinecraftServers/<name>
-  ramMb: number;
-  port: number;
-  javaPath?: string;     // override
-  jvmArgs: string[];     // extra args
-  launch?: LaunchSpec;   // set when install completes
-  installState: 'installing' | 'ready' | 'failed';
-  createdAt: string;
+  id: string // uuid
+  name: string
+  type: ServerType
+  mcVersion: string
+  build?: string
+  dir: string // default Documents/MinecraftServers/<name>
+  ramMb: number
+  port: number
+  javaPath?: string // override
+  jvmArgs: string[] // extra args
+  launch?: LaunchSpec // set when install completes
+  installState: 'installing' | 'ready' | 'failed'
+  createdAt: string
 }
 ```
 
@@ -128,9 +136,11 @@ Writes are atomic (write temp file, then rename).
 ## 4. UI
 
 ### 4.1 Server list (home)
+
 Card per server: name, type icon, version, status dot (stopped / starting / running / crashed / installing / failed), quick Start/Stop. "+ New server" button.
 
 ### 4.2 New Server wizard
+
 1. **Type & version**: type picker, version dropdown (releases by default, "show snapshots" toggle), build selector for Paper/Purpur (default latest).
 2. **Settings**: name (unique), folder (picker; default as above; must be empty or nonexistent), RAM slider (default min(25% system RAM, 8 GB), minimum 1 GB), port (default 25565, live availability check), EULA checkbox linking to https://aka.ms/MinecraftEULA (required to continue).
 3. **Install**: step list (Java -> server files -> installer -> config -> done) with live log; on completion "Open server". On failure: Retry / Delete.
@@ -138,6 +148,7 @@ Card per server: name, type icon, version, status dot (stopped / starting / runn
 Install writes `eula.txt` (`eula=true`) and an initial `server.properties` containing `server-port` and `motd`.
 
 ### 4.3 Server detail (tabs)
+
 - **Console**: streaming log (ANSI stripped), command input with up/down history, Start/Stop/Restart.
 - **Properties**: form for common keys (motd, max-players, gamemode, difficulty, pvp, online-mode, white-list, view-distance, server-port) plus an "Advanced" raw key/value table. Saving while running shows "takes effect after restart". Unknown keys are preserved.
 - **Settings**: RAM, Java override path, extra JVM args, Open folder, Delete server (confirm; option to keep files). The port is edited via `server-port` in the Properties tab and synced back to the server record (`servers.update` also accepts `port` and writes it into `server.properties`).
@@ -146,6 +157,7 @@ Install writes `eula.txt` (`eula=true`) and an initial `server.properties` conta
 ## 5. Data flow (IPC)
 
 Renderer -> main via `ipcRenderer.invoke` through `window.api`:
+
 - `providers.listVersions(type)`, `providers.listBuilds(type, version)`
 - `servers.list()`, `servers.create(input)`, `servers.retryInstall(id)`, `servers.update(id, patch)`, `servers.delete(id, keepFiles)`
 - `servers.start(id)`, `servers.stop(id)`, `servers.restart(id)`, `servers.kill(id)`, `servers.sendCommand(id, cmd)`, `servers.getLog(id)`

@@ -122,7 +122,12 @@ export const playerActionSchema = z.discriminatedUnion('type', [
   nameAction('pardon'),
   nameReasonAction('ban'),
   nameReasonAction('kick'),
-  z.strictObject({ type: z.literal('banIp'), ip: ipSchema, reason: reasonSchema, overwriteCorrupt }),
+  z.strictObject({
+    type: z.literal('banIp'),
+    ip: ipSchema,
+    reason: reasonSchema,
+    overwriteCorrupt
+  }),
   z.strictObject({ type: z.literal('pardonIp'), ip: ipSchema, overwriteCorrupt }),
   z.strictObject({ type: z.literal('setWhitelistEnabled'), enabled: z.boolean(), overwriteCorrupt })
 ])
