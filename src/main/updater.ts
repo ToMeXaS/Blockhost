@@ -68,7 +68,8 @@ export class UpdateService {
   install(): void {
     if (this.current.state !== 'ready')
       throw new AppError('NO_UPDATE', 'No update is ready to install')
-    this.deps.updater.quitAndInstall(false, true)
+    // Silent: the wizard installer would otherwise ask the user to click through it.
+    this.deps.updater.quitAndInstall(true, true)
   }
 
   /** Checks for an update now, e.g. after the machine wakes up. No-op until started. */

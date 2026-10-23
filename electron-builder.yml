@@ -20,8 +20,11 @@ win:
   target: nsis
 nsis:
   artifactName: Blockhost-${version}-setup.${ext}
-  oneClick: true
+  # The assisted (wizard) installer can show progress details; one-click shows a bare banner.
+  oneClick: false
   perMachine: false
+  allowToChangeInstallationDirectory: true
+  include: build/installer.nsh
   shortcutName: Blockhost
   uninstallDisplayName: Blockhost
   createDesktopShortcut: always
