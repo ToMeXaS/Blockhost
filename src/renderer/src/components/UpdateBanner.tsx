@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { UpdateStatus } from '../../../shared/types'
+import type { UpdateState, UpdateStatus } from '../../../shared/types'
 import { api, errorMessage } from '../lib/api'
 import { Button } from './ui'
 
@@ -24,14 +24,11 @@ export function useUpdateStatus(): UpdateStatus | null {
 
 export function UpdateBanner() {
   const status = useUpdateStatus()
-  const [dismissed, setDismissed] = useState(false)
+  // The state that was dismissed, so periodic re-checks don't keep reviving the banner.
+  const [dismissed, setDismissed] = useState<UpdateState | null>(null)
   const [installError, setInstallError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setDismissed(false)
-  }, [status?.state])
-
-  if (!status || dismissed) return null
+  if (!status || status.state === dismissed) return null
 
   const install = () => {
     setInstallError(null)
@@ -75,7 +72,7 @@ export function UpdateBanner() {
     return (
       <div className="space-y-2 rounded-btn border border-border-strong bg-panel px-3 py-2.5 text-xs text-muted">
         <span>Couldn&apos;t check for updates: {message}</span>
-        <Button size="sm" variant="ghost" className="w-full" onClick={() => setDismissed(true)}>
+        <Button size="sm" variant="ghost" className="w-full" onClick={() => setDismissed('error')}>
           Dismiss
         </Button>
       </div>

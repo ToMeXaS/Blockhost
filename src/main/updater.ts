@@ -1,7 +1,7 @@
 import type { UpdateStatus } from '../shared/types'
 import { AppError } from './errors'
 
-export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
+export const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000
 
 /** The subset of electron-updater's autoUpdater we use (injectable for tests). */
 export interface UpdaterLike {
@@ -55,8 +55,8 @@ export class UpdateService {
       this.set({ state: 'ready', version: info.version })
     )
     updater.on('error', (err: Error) => this.set({ state: 'error', message: err.message }))
-    this.check()
     this.timer = setInterval(() => this.check(), this.deps.intervalMs ?? UPDATE_CHECK_INTERVAL_MS)
+    this.check()
   }
 
   stop(): void {
@@ -71,9 +71,12 @@ export class UpdateService {
     this.deps.updater.quitAndInstall(false, true)
   }
 
-  private check(): void {
-    // Don't interrupt a download or a ready update with a new check.
-    if (this.current.state === 'downloading' || this.current.state === 'ready') return
+  /** Checks for an update now, e.g. after the machine wakes up. No-op until started. */
+  check(): void {
+    if (!this.timer) return
+    // Don't overlap a check, or interrupt a download or a ready update.
+    const { state } = this.current
+    if (state === 'checking' || state === 'downloading' || state === 'ready') return
     this.deps.updater
       .checkForUpdates()
       .catch((err: unknown) =>

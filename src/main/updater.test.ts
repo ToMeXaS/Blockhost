@@ -117,6 +117,21 @@ describe('UpdateService', () => {
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(2)
   })
 
+  it('check() runs on demand once started, but not before or while a check is in flight', () => {
+    const { updater, service } = makeService()
+    service.check()
+    expect(updater.checkForUpdates).not.toHaveBeenCalled()
+
+    service.start()
+    updater.emit('update-not-available')
+    service.check()
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2)
+
+    updater.emit('checking-for-update')
+    service.check()
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2)
+  })
+
   it('install() throws NO_UPDATE unless ready, and calls quitAndInstall when ready', () => {
     const { updater, service } = makeService()
     service.start()

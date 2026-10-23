@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell, type MessageBoxOptions } from 'electron'
+import { app, BrowserWindow, dialog, powerMonitor, shell, type MessageBoxOptions } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -185,5 +185,7 @@ if (!app.requestSingleInstanceLock()) {
     })
     createWindow()
     updates.start()
+    // Timers stall while the machine sleeps, so check as soon as it wakes.
+    powerMonitor.on('resume', () => updates?.check())
   })
 }
