@@ -6,3 +6,4 @@ out
 *.log*
 .superpowers/
 docs/superpowers/
+*.tsbuildinfo
