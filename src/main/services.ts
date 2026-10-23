@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { EventChannel, EventPayloads } from '../shared/api'
 import type { ServerType } from '../shared/types'
 import { JsonCache } from './cache'
+import { folderBytes } from './disk/usage'
 import { createModrinthClient } from './content/modrinth'
 import { ContentService } from './content/service'
 import { probeJava } from './java/detect'
@@ -150,6 +151,7 @@ export async function createServices(opts: {
     probeJava,
     isPortFree: (port) => isPortFree(port),
     removeDir: (dir) => rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }),
+    folderBytes,
     onRemoved: (rec) => tunnels.onServerRemoved(rec)
   })
   return {

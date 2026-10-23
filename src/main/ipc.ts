@@ -3,6 +3,7 @@ import { totalmem } from 'node:os'
 import { z } from 'zod'
 import type { InvokeChannel } from '../shared/api'
 import type { Result, UpdateStatus } from '../shared/types'
+import { diskUsage } from './disk/usage'
 import { AppError, toApiError } from './errors'
 import { lanIps, publicIp } from './net/ip'
 import { isPortFree } from './net/port'
@@ -107,6 +108,7 @@ export function registerIpc(
     players.action(id, action)
   )
   handle('stats:get', z.tuple([idSchema]), (id) => stats.snapshot(id))
+  handle('disk:get', z.tuple([idSchema]), (id) => diskUsage(servers.dir(id)))
 
   handle('tunnel:account', z.tuple([]), () => tunnels.account())
   handle('tunnel:link', z.tuple([]), () => tunnels.link())

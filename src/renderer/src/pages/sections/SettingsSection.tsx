@@ -13,6 +13,8 @@ interface Props {
 export function SettingsSection({ server, onChanged, onDeleted }: Props) {
   const [sys, setSys] = useState<SystemInfo | null>(null)
   const [ramMb, setRamMb] = useState(server.ramMb)
+  const [limitOn, setLimitOn] = useState(server.diskLimitMb !== undefined)
+  const [limitGb, setLimitGb] = useState(String((server.diskLimitMb ?? 10_240) / 1024))
   const [jvmArgs, setJvmArgs] = useState(server.jvmArgs.join(' '))
   const [javaPath, setJavaPath] = useState<string | undefined>(server.javaPath)
   const [saving, setSaving] = useState(false)
@@ -30,8 +32,12 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
       .catch(() => {})
   }, [])
 
+  const limitValue = Number(limitGb)
+  const limitValid = Number.isInteger(limitValue) && limitValue >= 1 && limitValue <= 10_240
+  const diskLimitMb = limitOn ? limitValue * 1024 : undefined
   const dirty =
     ramMb !== server.ramMb ||
+    diskLimitMb !== server.diskLimitMb ||
     jvmArgs.trim() !== server.jvmArgs.join(' ') ||
     javaPath !== server.javaPath
   const stopped = server.status === 'stopped' || server.status === 'crashed'
@@ -45,6 +51,7 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
     try {
       const result = await api.updateServer(server.id, {
         ramMb,
+        diskLimitMb: diskLimitMb ?? null,
         jvmArgs: jvmArgs.split(/\s+/).filter(Boolean),
         javaPath: javaPath ?? null
       })
@@ -78,7 +85,7 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
   return (
     <div className="space-y-4">
       <Card
-        title="Memory & Java"
+        title="Memory, disk & Java"
         actions={
           <Button
             variant="secondary"
@@ -101,6 +108,41 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
               value={ramMb}
               onChange={(e) => setRamMb(Number(e.target.value))}
             />
+          </Field>
+
+          <Field
+            label="Disk limit"
+            hint={
+              limitOn && !limitValid
+                ? 'Enter a whole number of GB between 1 and 10240.'
+                : 'Warns when the server folder gets close, and stops it from starting once it is over.'
+            }
+          >
+            <div className="flex items-center gap-3">
+              <label className="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm text-text-2">
+                <input
+                  type="checkbox"
+                  className="accent-accent"
+                  checked={limitOn}
+                  onChange={(e) => setLimitOn(e.target.checked)}
+                />
+                Limit disk usage
+              </label>
+              <div className="w-28">
+                <input
+                  type="number"
+                  aria-label="Disk limit in GB"
+                  className={`${inputClass} font-mono disabled:opacity-50`}
+                  min={1}
+                  max={10_240}
+                  step={1}
+                  disabled={!limitOn}
+                  value={limitGb}
+                  onChange={(e) => setLimitGb(e.target.value)}
+                />
+              </div>
+              <span className="text-sm text-text-2">GB</span>
+            </div>
           </Field>
 
           <Field
@@ -139,7 +181,11 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
           {notice && <Notice tone="ok">{notice}</Notice>}
 
           <div className="flex justify-end">
-            <Button variant="primary" disabled={!dirty || saving} onClick={() => void save()}>
+            <Button
+              variant="primary"
+              disabled={!dirty || saving || (limitOn && !limitValid)}
+              onClick={() => void save()}
+            >
               {saving ? 'Saving…' : 'Save settings'}
             </Button>
           </div>

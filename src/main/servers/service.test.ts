@@ -48,6 +48,7 @@ async function setup() {
   const probeJava = vi.fn(async (): Promise<number | null> => 25)
   const isPortFree = vi.fn(async () => true)
   const removeDir = vi.fn(async () => {})
+  const folderBytes = vi.fn(async () => 0)
   const service = new ServerService({
     store,
     installer,
@@ -55,9 +56,22 @@ async function setup() {
     java,
     probeJava,
     isPortFree,
-    removeDir
+    removeDir,
+    folderBytes
   })
-  return { store, dir, rec, processes, installer, java, probeJava, isPortFree, removeDir, service }
+  return {
+    store,
+    dir,
+    rec,
+    processes,
+    installer,
+    java,
+    probeJava,
+    isPortFree,
+    removeDir,
+    folderBytes,
+    service
+  }
 }
 
 describe('ServerService', () => {
@@ -84,6 +98,37 @@ describe('ServerService', () => {
       details: { port: 25565 }
     })
     expect(processes.start).not.toHaveBeenCalled()
+  })
+
+  it('refuses to start when the folder is at its disk limit', async () => {
+    const { store, processes, folderBytes, service } = await setup()
+    await store.update(ID, { diskLimitMb: 1024 })
+    folderBytes.mockResolvedValue(1024 ** 3)
+    await expect(service.start(ID)).rejects.toMatchObject({
+      code: 'DISK_LIMIT',
+      details: { usedBytes: 1024 ** 3, limitBytes: 1024 ** 3 }
+    })
+    expect(processes.start).not.toHaveBeenCalled()
+  })
+
+  it('starts when under the disk limit, and skips measuring without one', async () => {
+    const { store, processes, folderBytes, service } = await setup()
+    await service.start(ID)
+    expect(folderBytes).not.toHaveBeenCalled()
+    await store.update(ID, { diskLimitMb: 1024 })
+    folderBytes.mockResolvedValue(1024 ** 3 - 1)
+    await service.start(ID)
+    expect(processes.start).toHaveBeenCalledTimes(2)
+  })
+
+  it('sets and clears the disk limit', async () => {
+    const { service } = await setup()
+    const set = await service.update(ID, { diskLimitMb: 10_240 })
+    expect(set.server.diskLimitMb).toBe(10_240)
+    const kept = await service.update(ID, { ramMb: 4096 })
+    expect(kept.server.diskLimitMb).toBe(10_240)
+    const cleared = await service.update(ID, { diskLimitMb: null })
+    expect(cleared.server.diskLimitMb).toBeUndefined()
   })
 
   it('refuses to start an unfinished install', async () => {
@@ -190,8 +235,17 @@ describe('ServerService', () => {
   })
 
   it('calls onRemoved with the deleted record', async () => {
-    const { store, rec, processes, installer, java, probeJava, isPortFree, removeDir } =
-      await setup()
+    const {
+      store,
+      rec,
+      processes,
+      installer,
+      java,
+      probeJava,
+      isPortFree,
+      removeDir,
+      folderBytes
+    } = await setup()
     const onRemoved = vi.fn()
     const service = new ServerService({
       store,
@@ -201,6 +255,7 @@ describe('ServerService', () => {
       probeJava,
       isPortFree,
       removeDir,
+      folderBytes,
       onRemoved
     })
     await service.remove(rec.id, true)

@@ -29,6 +29,26 @@ export function formatRam(mb: number): string {
   return mb % 1024 === 0 ? `${mb / 1024} GB` : `${(mb / 1024).toFixed(1)} GB`
 }
 
+/** "512 B", "2 KB", "1.8 GB", "212 GB": one decimal below 10, whole numbers above. */
+export function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit++
+  }
+  const text =
+    value < 10 && unit > 0 ? value.toFixed(1).replace(/\.0$/, '') : String(Math.round(value))
+  return `${text} ${units[unit]}`
+}
+
+/** How full a bar is: warn above 90%, over at 100%. */
+export function fillLevel(ratio: number): 'ok' | 'warn' | 'over' {
+  if (ratio >= 1) return 'over'
+  return ratio > 0.9 ? 'warn' : 'ok'
+}
+
 /** A quarter of system RAM, rounded to 512 MB, between 1 GB and 8 GB. */
 export function defaultRamMb(totalMb: number): number {
   const quarter = Math.round((totalMb * 0.25) / 512) * 512

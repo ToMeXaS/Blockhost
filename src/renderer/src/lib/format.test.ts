@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { AVATAR_COLORS, avatarColor, formatUptime, javaLabel, serverAddress } from './format'
+import {
+  AVATAR_COLORS,
+  avatarColor,
+  fillLevel,
+  formatBytes,
+  formatUptime,
+  javaLabel,
+  serverAddress
+} from './format'
 
 describe('formatUptime', () => {
   it.each([
@@ -46,5 +54,30 @@ describe('javaLabel', () => {
   it('shows the custom file name', () => {
     expect(javaLabel('C:\\Program Files\\Java\\jdk-21\\bin\\java.exe')).toBe('java.exe')
     expect(javaLabel('/usr/bin/java')).toBe('java')
+  })
+})
+
+describe('formatBytes', () => {
+  it.each([
+    [0, '0 B'],
+    [512, '512 B'],
+    [2048, '2 KB'],
+    [1.8 * 1024 ** 3, '1.8 GB'],
+    [212 * 1024 ** 3, '212 GB'],
+    [2.5 * 1024 ** 4, '2.5 TB']
+  ])('%d → %s', (bytes, expected) => {
+    expect(formatBytes(bytes)).toBe(expected)
+  })
+})
+
+describe('fillLevel', () => {
+  it.each([
+    [0.5, 'ok'],
+    [0.9, 'ok'],
+    [0.91, 'warn'],
+    [1, 'over'],
+    [1.2, 'over']
+  ] as const)('%d → %s', (ratio, expected) => {
+    expect(fillLevel(ratio)).toBe(expected)
   })
 })

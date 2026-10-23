@@ -30,6 +30,7 @@ export const INVOKE_CHANNELS = [
   'players:get',
   'players:action',
   'stats:get',
+  'disk:get',
   'tunnel:account',
   'tunnel:link',
   'tunnel:cancelLink',

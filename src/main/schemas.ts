@@ -14,6 +14,8 @@ export const versionSchema = z
   .regex(/^[\w.+-]+$/)
 export const portSchema = z.number().int().min(1).max(65535)
 export const ramSchema = z.number().int().min(512).max(65536)
+/** Whole GB, 1 GB to 10 TB, stored in MB like RAM. */
+export const diskLimitSchema = z.number().int().min(1024).max(10_485_760).multipleOf(1024)
 const RESERVED_DEVICE_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i
 
 export const nameSchema = z
@@ -58,6 +60,7 @@ const jvmArgSchema = z
 export const serverPatchSchema = z.strictObject({
   name: nameSchema.optional(),
   ramMb: ramSchema.optional(),
+  diskLimitMb: diskLimitSchema.nullable().optional(),
   port: portSchema.optional(),
   javaPath: z.string().max(400).nullable().optional(),
   jvmArgs: z.array(jvmArgSchema).max(50).optional()

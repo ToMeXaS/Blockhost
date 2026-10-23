@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { SERVER_TYPE_LABELS, type ServerView } from '../../../shared/types'
 import { STATUS_DOT } from '../lib/format'
 import { sectionsFor, type Section } from '../lib/routes'
+import { DiskUsagePanel } from './DiskUsagePanel'
 import {
   ChevronDownIcon,
   ConnectIcon,
@@ -197,6 +198,7 @@ export function AppShell({
         </nav>
 
         <div className="hidden space-y-3 p-3 min-[1000px]:block">
+          {current && <DiskUsagePanel serverId={current.id} diskLimitMb={current.diskLimitMb} />}
           <UpdateBanner />
           {version && (
             <div className="px-2 font-mono text-[11px] text-faint">Blockhost v{version}</div>

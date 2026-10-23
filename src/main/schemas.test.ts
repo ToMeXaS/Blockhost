@@ -67,6 +67,14 @@ describe('serverPatchSchema', () => {
     })
   })
 
+  it('accepts a whole-GB disk limit or null, and rejects anything else', () => {
+    expect(serverPatchSchema.parse({ diskLimitMb: 10_240 })).toEqual({ diskLimitMb: 10_240 })
+    expect(serverPatchSchema.parse({ diskLimitMb: null })).toEqual({ diskLimitMb: null })
+    for (const bad of [0, 512, 1500, -1024, 1024.5]) {
+      expect(serverPatchSchema.safeParse({ diskLimitMb: bad }).success).toBe(false)
+    }
+  })
+
   it('rejects unknown keys', () => {
     expect(serverPatchSchema.safeParse({ launch: { args: ['-jar', 'evil.jar'] } }).success).toBe(
       false

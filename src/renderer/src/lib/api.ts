@@ -4,6 +4,7 @@ import type {
   ContentInstallResult,
   ContentSearchResult,
   CreateServerInput,
+  DiskUsage,
   InstalledContentList,
   NetInfo,
   PlayerAction,
@@ -66,6 +67,7 @@ export const api = {
   playerAction: (id: string, action: PlayerAction) =>
     call<PlayerLists>('players:action', id, action),
   statsGet: (id: string) => call<StatsSnapshot>('stats:get', id),
+  diskGet: (id: string) => call<DiskUsage>('disk:get', id),
 
   tunnelAccount: () => call<PlayitAccountStatus>('tunnel:account'),
   tunnelLink: () => call<void>('tunnel:link'),

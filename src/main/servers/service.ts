@@ -26,6 +26,7 @@ export interface ServerServiceDeps {
   probeJava: (javaPath: string) => Promise<number | null>
   isPortFree: (port: number) => Promise<boolean>
   removeDir: (dir: string) => Promise<void>
+  folderBytes: (dir: string) => Promise<number>
   /** Called after a server has been removed from the store. */
   onRemoved?: (rec: ServerRecord) => void
 }
@@ -97,12 +98,16 @@ export class ServerService {
       await updateProperties(rec.dir, { 'server-port': String(patch.port) })
     }
 
+    let diskLimitMb = rec.diskLimitMb
+    if (patch.diskLimitMb !== undefined) diskLimitMb = patch.diskLimitMb ?? undefined
+
     const updated = await this.deps.store.update(id, {
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
       ...(patch.ramMb !== undefined ? { ramMb: patch.ramMb } : {}),
       ...(patch.port !== undefined ? { port: patch.port } : {}),
       ...(patch.jvmArgs !== undefined ? { jvmArgs: patch.jvmArgs } : {}),
-      javaPath
+      javaPath,
+      diskLimitMb
     })
     return { server: this.view(updated), ...(warning ? { warning } : {}) }
   }
@@ -132,6 +137,18 @@ export class ServerService {
       throw new AppError('PORT_IN_USE', `Port ${rec.port} is already in use by another program`, {
         port: rec.port
       })
+    }
+    if (rec.diskLimitMb !== undefined) {
+      const usedBytes = await this.deps.folderBytes(rec.dir)
+      const limitBytes = rec.diskLimitMb * 1024 ** 2
+      if (usedBytes >= limitBytes) {
+        const gb = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(1)} GB`
+        throw new AppError(
+          'DISK_LIMIT',
+          `This server uses ${gb(usedBytes)} of its ${rec.diskLimitMb / 1024} GB disk limit. Free up space or raise the limit in Settings.`,
+          { usedBytes, limitBytes }
+        )
+      }
     }
     const javaPath = await this.deps.java.forStart(rec)
     this.deps.processes.start(rec, javaPath)

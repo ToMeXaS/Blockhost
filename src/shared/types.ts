@@ -34,6 +34,8 @@ export interface ServerRecord {
   build?: string
   dir: string
   ramMb: number
+  /** Soft cap on the server folder's size; starting is refused at or above it. */
+  diskLimitMb?: number
   port: number
   javaPath?: string
   jvmArgs: string[]
@@ -62,6 +64,8 @@ export interface ServerPatch {
   name?: string
   ramMb?: number
   port?: number
+  /** `null` removes the limit. */
+  diskLimitMb?: number | null
   /** `null` switches back to the automatically managed Java. */
   javaPath?: string | null
   jvmArgs?: string[]
@@ -271,6 +275,15 @@ export interface StatsSnapshot {
   cores: number
   tpsSupported: boolean
   samplerAvailable: boolean
+}
+
+export interface DiskUsage {
+  /** Size of the server's folder. */
+  serverBytes: number
+  freeBytes: number
+  totalBytes: number
+  /** "C:" on Windows, "/" elsewhere. */
+  drive: string
 }
 
 export interface StatsSampleEvent {
