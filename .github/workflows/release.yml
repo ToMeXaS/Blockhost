@@ -1,0 +1,62 @@
+# Builds the Windows installer for a pushed version tag and uploads it to a draft
+# GitHub release. Review the generated notes, then publish the draft so the
+# auto-updater picks it up.
+#
+#   npm version minor && git push --follow-tags
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Check the tag matches package.json
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$version" ]; then
+            echo "::error::Tag $TAG does not match package.json version $version"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: Create the draft release
+        run: |
+          if gh release view "$TAG" --json isDraft -q .isDraft 2>/dev/null | grep -q false; then
+            echo "::error::Release $TAG is already published"
+            exit 1
+          fi
+          gh release view "$TAG" >/dev/null 2>&1 ||
+            gh release create "$TAG" --draft --generate-notes --verify-tag --title "${TAG#v}"
+
+      - run: npm run build
+
+      - name: Build the installer and upload it to the draft
+        run: npx electron-builder --win --publish always -c.publish.releaseType=draft
