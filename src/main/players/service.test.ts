@@ -16,7 +16,8 @@ async function setup(status: ServerStatus = 'stopped') {
   const rec = { id: ID, dir } as ServerRecord
   const processes = {
     status: vi.fn((): ServerStatus => status),
-    sendCommand: vi.fn()
+    sendCommand: vi.fn(),
+    sendQuietCommand: vi.fn()
   }
   const lookup = vi.fn(async (name: string) => ({ uuid: `uuid-${name.toLowerCase()}`, name }))
   const watchers: { dir: string; onChange: (f: string | null) => void; close: () => void }[] = []
@@ -243,11 +244,15 @@ describe('PlayerService events', () => {
     expect((await service.getPlayers(ID)).online).toEqual(['Steve'])
   })
 
-  it('resyncs with `list` when a caller looks at a running server, throttled to once per 30s', async () => {
+  it('resyncs with a quiet `list` when a caller looks at a running server, throttled to once per 30s', async () => {
     const dir = join(await tempDir(), 'srv')
     await mkdir(dir)
     const rec = { id: ID, dir } as ServerRecord
-    const processes = { status: vi.fn((): ServerStatus => 'running'), sendCommand: vi.fn() }
+    const processes = {
+      status: vi.fn((): ServerStatus => 'running'),
+      sendCommand: vi.fn(),
+      sendQuietCommand: vi.fn()
+    }
     let now = NOW
     const service = new PlayerService({
       store: { get: () => rec },
@@ -259,21 +264,48 @@ describe('PlayerService events', () => {
     })
 
     await service.getPlayers(ID)
-    expect(processes.sendCommand).toHaveBeenCalledTimes(1)
-    expect(processes.sendCommand).toHaveBeenCalledWith(ID, 'list')
+    const lists = () => processes.sendQuietCommand.mock.calls.filter(([, cmd]) => cmd === 'list')
+    expect(lists()).toEqual([[ID, 'list', expect.any(Function)]])
+    expect(processes.sendCommand).not.toHaveBeenCalled()
 
     await service.getPlayers(ID)
-    expect(processes.sendCommand).toHaveBeenCalledTimes(1) // still within the 30s window
+    expect(lists()).toHaveLength(1) // still within the 30s window
 
     now = new Date(now.getTime() + 30_000)
     await service.getPlayers(ID)
-    expect(processes.sendCommand).toHaveBeenCalledTimes(2)
+    expect(lists()).toHaveLength(2)
+  })
+
+  it('asks quietly which dimension each online player is in and reports the replies', async () => {
+    const { processes, dir } = await setup('running')
+    const rec = { id: ID, dir, mcVersion: '1.21.1' } as ServerRecord
+    const quiet = new PlayerService({
+      store: { get: () => rec },
+      processes,
+      lookup: vi.fn(),
+      watch: () => ({ close: vi.fn() }),
+      emit: vi.fn(),
+      now: () => NOW
+    })
+    quiet.onLog({ serverId: ID, lines: ['[14:03:00 INFO]: Steve joined the game'] })
+    await quiet.getPlayers(ID)
+    expect(processes.sendQuietCommand).toHaveBeenCalledWith(
+      ID,
+      'data get entity Steve Dimension',
+      expect.any(Function)
+    )
+    quiet.onQuietLine(
+      ID,
+      '[14:03:01 INFO]: Steve has the following entity data: "minecraft:the_nether"'
+    )
+    expect((await quiet.getPlayers(ID)).dimensions).toEqual({ Steve: 'minecraft:the_nether' })
   })
 
   it('does not resync `list` when a caller looks at a server that is not running', async () => {
     const { service, processes } = await setup('stopped')
     await service.getPlayers(ID)
     expect(processes.sendCommand).not.toHaveBeenCalled()
+    expect(processes.sendQuietCommand).not.toHaveBeenCalled()
   })
 
   it('reports no one online unless running', async () => {

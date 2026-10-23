@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { PlayerTracker } from './tracker'
+import { isDimensionReply, PlayerTracker } from './tracker'
 
 const ID = 'srv'
 
@@ -21,6 +21,62 @@ describe('PlayerTracker', () => {
     expect(tracker.online(ID)).toEqual(['alex_99', 'Notch'])
     expect(onChange).toHaveBeenCalledTimes(2)
     expect(onChange).toHaveBeenCalledWith(ID)
+  })
+
+  it('records when each player came online and keeps it across /list resyncs', () => {
+    let now = 1000
+    const tracker = new PlayerTracker(vi.fn(), () => now)
+    tracker.handleLines(ID, ['[14:03:00 INFO]: Steve joined the game'])
+    now = 5000
+    tracker.handleLines(ID, [
+      '[14:04:00 INFO]: There are 2 of a max of 20 players online: Steve, Alex'
+    ])
+    expect(tracker.onlineSince(ID)).toEqual({ Steve: 1000, Alex: 5000 })
+    tracker.handleLines(ID, ['[14:05:00 INFO]: Steve left the game'])
+    expect(tracker.onlineSince(ID)).toEqual({ Alex: 5000 })
+  })
+
+  it('records dimension replies for online players, including pre-1.16 numbers', () => {
+    const { tracker, onChange } = setup()
+    tracker.handleLines(ID, [
+      '[14:03:00 INFO]: Steve joined the game',
+      '[14:03:00 INFO]: Alex joined the game'
+    ])
+    onChange.mockClear()
+    tracker.handleDimensionReply(
+      ID,
+      '[14:03:01] [Server thread/INFO]: Steve has the following entity data: "minecraft:the_end"'
+    )
+    tracker.handleDimensionReply(ID, '[14:03:01 INFO]: Alex has the following entity data: -1')
+    tracker.handleDimensionReply(ID, '[14:03:01 INFO]: Ghost has the following entity data: 0')
+    expect(tracker.dimensions(ID)).toEqual({
+      Steve: 'minecraft:the_end',
+      Alex: 'minecraft:the_nether'
+    })
+    expect(onChange).toHaveBeenCalledTimes(2)
+    expect(isDimensionReply('[14:03:01 INFO]: No entity was found')).toBe(true)
+    expect(isDimensionReply('[14:03:01 INFO]: <Steve> has the following entity data: 1')).toBe(
+      false
+    )
+  })
+
+  it('reads Paper 26.x "System chat:" joins, leaves, list and dimension replies', () => {
+    const { tracker } = setup()
+    tracker.handleLines(ID, [
+      '[20:25:17] [Server thread/INFO]: System chat: ToMeXaS joined the game',
+      '[20:25:18] [Server thread/INFO]: System chat: Steve joined the game',
+      '[20:25:19] [Server thread/INFO]: System chat: Steve left the game'
+    ])
+    expect(tracker.online(ID)).toEqual(['ToMeXaS'])
+    tracker.handleLines(ID, [
+      '[20:26:00] [Server thread/INFO]: System chat: There are 2 of a max of 20 players online: ToMeXaS, Alex'
+    ])
+    expect(tracker.online(ID)).toEqual(['Alex', 'ToMeXaS'])
+    const reply =
+      '[20:26:01] [Server thread/INFO]: System chat: ToMeXaS has the following entity data: "minecraft:the_end"'
+    expect(isDimensionReply(reply)).toBe(true)
+    tracker.handleDimensionReply(ID, reply)
+    expect(tracker.dimensions(ID)).toEqual({ ToMeXaS: 'minecraft:the_end' })
   })
 
   it('tracks a renamed player join line under their current name', () => {

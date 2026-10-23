@@ -12,6 +12,7 @@ import { AppError } from '../errors'
 import type { ProcessManager } from '../servers/process'
 import { readPropertiesFile, updateProperties } from '../servers/properties'
 import type { ServerStore } from '../servers/store'
+import { compareMcVersions } from '../util/mcVersion'
 import {
   banTimestamp,
   hasName,
@@ -24,7 +25,7 @@ import {
   writeList,
   type RawEntry
 } from './files'
-import { PlayerTracker } from './tracker'
+import { dimensionCommand, isDimensionReply, isListReply, PlayerTracker } from './tracker'
 
 export type WatchFn = (
   dir: string,
@@ -40,6 +41,9 @@ export const defaultWatch: WatchFn = (dir, onChange) => {
 const WATCHED_FILES = new Set([...Object.values(LIST_FILES), 'server.properties'])
 const DEFAULT_BAN_REASON = 'Banned by an operator.'
 const LIST_RESYNC_THROTTLE_MS = 30_000
+const DIMENSION_RESYNC_THROTTLE_MS = 10_000
+/** `data get entity` arrived in 1.13. */
+const DATA_COMMAND_SINCE = '1.13'
 
 type FileAction = Exclude<PlayerAction, { type: 'kick' | 'setWhitelistEnabled' }>
 
@@ -84,7 +88,7 @@ export function toCommand(action: PlayerAction): string {
 
 export interface PlayerServiceDeps {
   store: Pick<ServerStore, 'get'>
-  processes: Pick<ProcessManager, 'status' | 'sendCommand'>
+  processes: Pick<ProcessManager, 'status' | 'sendCommand' | 'sendQuietCommand'>
   lookup: (name: string, onlineMode: boolean) => Promise<PlayerRef>
   watch: WatchFn
   emit: (event: PlayersChangedEvent) => void
@@ -99,15 +103,22 @@ export class PlayerService {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly queues = new Map<string, Promise<unknown>>()
   private readonly lastListSentAt = new Map<string, number>()
+  private readonly lastDimensionsSentAt = new Map<string, number>()
 
   constructor(deps: PlayerServiceDeps) {
     this.deps = deps
-    this.tracker = new PlayerTracker((serverId) => this.deps.emit({ serverId }))
+    this.tracker = new PlayerTracker(
+      (serverId) => this.deps.emit({ serverId }),
+      () => (this.deps.now?.() ?? new Date()).getTime()
+    )
   }
 
   async getPlayers(serverId: string): Promise<PlayerLists> {
     const { dir } = this.deps.store.get(serverId)
-    if (this.deps.processes.status(serverId) === 'running') this.maybeResyncList(serverId)
+    if (this.deps.processes.status(serverId) === 'running') {
+      this.maybeResyncList(serverId)
+      this.maybeResyncDimensions(serverId)
+    }
     const [ops, whitelist, bannedPlayers, bannedIps, props] = await Promise.all([
       readList(dir, 'ops'),
       readList(dir, 'whitelist'),
@@ -116,9 +127,11 @@ export class PlayerService {
       readPropertiesFile(dir)
     ])
     const files = { ops, whitelist, bannedPlayers, bannedIps }
+    const running = this.deps.processes.status(serverId) === 'running'
     return {
-      online:
-        this.deps.processes.status(serverId) === 'running' ? this.tracker.online(serverId) : [],
+      online: running ? this.tracker.online(serverId) : [],
+      onlineSince: running ? this.tracker.onlineSince(serverId) : {},
+      dimensions: running ? this.tracker.dimensions(serverId) : {},
       ops: toOps(ops.entries),
       whitelist: toWhitelist(whitelist.entries),
       whitelistEnabled: props.find((e) => e.key === 'white-list')?.value === 'true',
@@ -204,11 +217,18 @@ export class PlayerService {
       this.stopWatching(serverId)
       this.tracker.reset(serverId)
       this.lastListSentAt.delete(serverId)
+      this.lastDimensionsSentAt.delete(serverId)
     }
   }
 
   onLog(event: ServerLogEvent): void {
     this.tracker.handleLines(event.serverId, event.lines)
+  }
+
+  /** Replies to our own quiet `list` and dimension commands, hidden from the console. */
+  onQuietLine(serverId: string, line: string): void {
+    this.tracker.handleLines(serverId, [line])
+    this.tracker.handleDimensionReply(serverId, line)
   }
 
   private async editList(serverId: string, dir: string, action: FileAction): Promise<void> {
@@ -294,9 +314,30 @@ export class PlayerService {
     if (now - last < LIST_RESYNC_THROTTLE_MS) return
     this.lastListSentAt.set(serverId, now)
     try {
-      this.deps.processes.sendCommand(serverId, 'list')
+      this.deps.processes.sendQuietCommand(serverId, 'list', isListReply)
     } catch {
       // The server exited between the status check and now; nothing to resync.
+    }
+  }
+
+  /**
+   * Players change dimension through portals without any log line, so ask the
+   * server where everyone is whenever someone looks, throttled. The replies are
+   * hidden from the console and arrive through {@link onQuietLine}.
+   */
+  private maybeResyncDimensions(serverId: string): void {
+    const { mcVersion } = this.deps.store.get(serverId)
+    if (!mcVersion || compareMcVersions(mcVersion, DATA_COMMAND_SINCE) < 0) return
+    const now = (this.deps.now?.() ?? new Date()).getTime()
+    const last = this.lastDimensionsSentAt.get(serverId) ?? 0
+    if (now - last < DIMENSION_RESYNC_THROTTLE_MS) return
+    this.lastDimensionsSentAt.set(serverId, now)
+    try {
+      for (const name of this.tracker.online(serverId)) {
+        this.deps.processes.sendQuietCommand(serverId, dimensionCommand(name), isDimensionReply)
+      }
+    } catch {
+      // The server exited between the status check and now.
     }
   }
 
