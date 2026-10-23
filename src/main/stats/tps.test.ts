@@ -70,7 +70,7 @@ describe('isTpsReply', () => {
     '[12:00:00 INFO]: Steve joined the game',
     '[12:00:00 INFO]: <Steve> The game is running normally',
     '[12:00:00] [Server thread/INFO]: give Steve diamond<--[HERE]',
-    '[12:00:00 WARN]: Can\'t keep up! Is the server overloaded? Running 2034ms or 40 ticks behind'
+    "[12:00:00 WARN]: Can't keep up! Is the server overloaded? Running 2034ms or 40 ticks behind"
   ])('keeps %s', (line) => {
     expect(isTpsReply(line)).toBe(false)
   })

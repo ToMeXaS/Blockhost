@@ -6,6 +6,7 @@ import {
 } from '../../../../shared/types'
 import { CopyIcon } from '../../components/icons'
 import { LogLine } from '../../components/LogLine'
+import { PerformanceChart, PerformanceLegend } from '../../components/PerformanceChart'
 import { PerformanceTiles } from '../../components/PerformanceTiles'
 import { Avatar, Button, Card, TextLink } from '../../components/ui'
 import { useCopy } from '../../hooks/useCopy'
@@ -100,6 +101,20 @@ export function OverviewSection({ server, online, runningSince, onSection }: Pro
         maxPlayers={maxPlayers}
         stats={stats}
       />
+      <Card
+        title="Performance"
+        actions={running ? <PerformanceLegend showTps={stats.tpsSupported} /> : undefined}
+      >
+        {running ? (
+          <PerformanceChart
+            points={stats.points}
+            allocatedMb={server.ramMb}
+            showTps={stats.tpsSupported}
+          />
+        ) : (
+          <p className="text-sm text-faint">Start the server to see performance</p>
+        )}
+      </Card>
       <div className="grid gap-4 min-[1000px]:grid-cols-2">
         <Card title="Status">
           <dl className="grid grid-cols-2 gap-4">

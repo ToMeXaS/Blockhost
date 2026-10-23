@@ -10,13 +10,11 @@ const TICK_COMMAND_SINCE = '1.20.3'
 const PREFIX = String.raw`^(?:(?:\[[^\]]*\]\s*)+:\s)?`
 const NUM = String.raw`(\d+(?:[.,]\d+)?)`
 const PAPER_TPS = new RegExp(`${PREFIX}TPS from last 1m, 5m, 15m: \\*?${NUM}`)
-const AVG_TICK = new RegExp(
-  `${PREFIX}Average time per tick: ${NUM}ms(?: \\(Target: ${NUM}ms\\))?`
-)
+const AVG_TICK = new RegExp(`${PREFIX}Average time per tick: ${NUM}ms(?: \\(Target: ${NUM}ms\\))?`)
 const REPLY = new RegExp(
   `${PREFIX}(?:${[
     'TPS from last 1m, 5m, 15m:',
-    'The game is (?:running normally|frozen|sprinting|running, but can\'t keep up)',
+    "The game is (?:running normally|frozen|sprinting|running, but can't keep up)",
     'Target tick rate:',
     'Average time per tick:',
     'Percentiles: P50:',
