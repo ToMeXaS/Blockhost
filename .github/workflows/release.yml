@@ -1,6 +1,6 @@
 # Builds the Windows installer for a pushed version tag and uploads it to a draft
-# GitHub release. Review the generated notes, then publish the draft so the
-# auto-updater picks it up.
+# GitHub release, with notes built from the commit messages since the previous
+# tag. Review the notes, then publish the draft so the auto-updater picks it up.
 #
 #   npm version minor && git push --follow-tags
 
@@ -29,6 +29,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The full history and tags, so the notes can list commits since the last tag.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
@@ -47,14 +50,51 @@ jobs:
 
       - run: npm test
 
+      # Groups conventional commits (feat:, fix:, ...) since the previous tag. Version
+      # bumps and ci/docs/test/chore/build/style commits are left out.
+      - name: Write the release notes from commit messages
+        run: |
+          prev="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)"
+          range="${prev:+$prev..}$TAG"
+          git log --no-merges --reverse --format='%h %s' "$range" | awk '
+            function add(group, line) { lines[group] = lines[group] "- " line "\n" }
+            {
+              sha = $1
+              subject = substr($0, length(sha) + 2)
+              if (subject ~ /^[0-9]+\.[0-9]+\.[0-9]+/) next
+              if (!match(subject, /^[a-z]+(\([^)]*\))?!?: */)) { add("other", subject " (" sha ")"); next }
+              type = substr(subject, 1, RLENGTH)
+              sub(/[(!:].*/, "", type)
+              text = substr(subject, RLENGTH + 1)
+              text = toupper(substr(text, 1, 1)) substr(text, 2) " (" sha ")"
+              if (type == "feat") add("feat", text)
+              else if (type == "fix") add("fix", text)
+              else if (type ~ /^(ci|docs|test|chore|build|style)$/) next
+              else add("other", text)
+            }
+            END {
+              if (lines["feat"]) printf "## New\n\n%s\n", lines["feat"]
+              if (lines["fix"]) printf "## Fixes\n\n%s\n", lines["fix"]
+              if (lines["other"]) printf "## Other changes\n\n%s\n", lines["other"]
+            }
+          ' > notes.md
+          [ -s notes.md ] || echo "Maintenance release." > notes.md
+          if [ -n "$prev" ]; then
+            echo "**Full changelog**: https://github.com/$GITHUB_REPOSITORY/compare/$prev...$TAG" >> notes.md
+          fi
+          cat notes.md
+
       - name: Create the draft release
         run: |
           if gh release view "$TAG" --json isDraft -q .isDraft 2>/dev/null | grep -q false; then
             echo "::error::Release $TAG is already published"
             exit 1
           fi
-          gh release view "$TAG" >/dev/null 2>&1 ||
-            gh release create "$TAG" --draft --generate-notes --verify-tag --title "${TAG#v}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" --draft --notes-file notes.md --verify-tag --title "${TAG#v}"
+          fi
 
       - run: npm run build
 
