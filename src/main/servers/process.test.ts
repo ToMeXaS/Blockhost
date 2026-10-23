@@ -2,7 +2,13 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import type { ServerLogEvent, ServerRecord, ServerStatus } from '../../shared/types'
-import { buildJavaArgs, DONE_PATTERN, ProcessManager, type ChildLike } from './process'
+import {
+  buildJavaArgs,
+  DONE_PATTERN,
+  ProcessManager,
+  type ChildLike,
+  type ProcessManagerDeps
+} from './process'
 
 class FakeChild extends EventEmitter {
   pid = 4242
@@ -40,7 +46,7 @@ const rec: ServerRecord = {
   createdAt: '2026-10-17T12:00:00.000Z'
 }
 
-function setup() {
+function setup(extra: Partial<ProcessManagerDeps> = {}) {
   const child = new FakeChild()
   const spawn = vi.fn(
     (_cmd: string, _args: string[], _cwd: string) => child as unknown as ChildLike
@@ -48,14 +54,17 @@ function setup() {
   const kill = vi.fn(async () => {})
   const statuses: ServerStatus[] = []
   const logs: ServerLogEvent[] = []
+  const quietLines: { serverId: string; line: string }[] = []
   const manager = new ProcessManager({
     spawn,
     kill,
     onStatus: (e) => statuses.push(e.status),
     onLog: (e) => logs.push(e),
-    batchMs: 0
+    onQuietLine: (serverId, line) => quietLines.push({ serverId, line }),
+    batchMs: 0,
+    ...extra
   })
-  return { child, spawn, kill, statuses, logs, manager }
+  return { child, spawn, kill, statuses, logs, quietLines, manager }
 }
 
 describe('buildJavaArgs', () => {
@@ -198,5 +207,65 @@ describe('ProcessManager', () => {
     child.stdout.write('a\nb\nc\nd\ne\n')
     await tick()
     expect(manager.getLog('s1')).toEqual(['c', 'd', 'e'])
+  })
+})
+
+describe('ProcessManager quiet commands', () => {
+  const TPS_LINE = '[12:00:00 INFO]: TPS from last 1m, 5m, 15m: 20.0, 20.0, 20.0'
+  const isTps = (line: string) => line.includes('TPS from')
+
+  it('exposes the Java process id while running', () => {
+    const { manager } = setup()
+    expect(manager.pid('s1')).toBeUndefined()
+    manager.start(rec, 'java')
+    expect(manager.pid('s1')).toBe(4242)
+  })
+
+  it('writes the command without echoing it in the log', async () => {
+    const { child, manager } = setup()
+    manager.start(rec, 'java')
+    manager.sendQuietCommand('s1', 'tps', isTps)
+    await tick()
+    expect(child.written.join('')).toBe('tps\n')
+    expect(manager.getLog('s1')).not.toContain('> tps')
+  })
+
+  it('hides matching replies from the log and forwards them', async () => {
+    const { child, logs, quietLines, manager } = setup()
+    manager.start(rec, 'java')
+    manager.sendQuietCommand('s1', 'tps', isTps)
+    child.stdout.write(`${TPS_LINE}\n[12:00:00 INFO]: Steve joined the game\n`)
+    await tick()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(quietLines).toEqual([{ serverId: 's1', line: TPS_LINE }])
+    expect(manager.getLog('s1')).toContain('[12:00:00 INFO]: Steve joined the game')
+    expect(manager.getLog('s1')).not.toContain(TPS_LINE)
+    expect(logs.flatMap((e) => e.lines)).not.toContain(TPS_LINE)
+  })
+
+  it('stops hiding once the quiet window has passed', async () => {
+    const { child, quietLines, manager } = setup({ quietMs: 0 })
+    manager.start(rec, 'java')
+    manager.sendQuietCommand('s1', 'tps', isTps)
+    child.stdout.write(`${TPS_LINE}\n`)
+    await tick()
+    expect(quietLines).toEqual([])
+    expect(manager.getLog('s1')).toContain(TPS_LINE)
+  })
+
+  it('still detects the Done line while a quiet window is open', async () => {
+    const { child, manager } = setup()
+    manager.start(rec, 'java')
+    manager.sendQuietCommand('s1', 'tps', () => true)
+    child.stdout.write('[12:00:01 INFO]: Done (3.2s)! For help, type "help"\n')
+    await tick()
+    expect(manager.status('s1')).toBe('running')
+  })
+
+  it('rejects quiet commands when not running', () => {
+    const { manager } = setup()
+    expect(() => manager.sendQuietCommand('s1', 'tps', isTps)).toThrow(
+      expect.objectContaining({ code: 'NOT_RUNNING' })
+    )
   })
 })

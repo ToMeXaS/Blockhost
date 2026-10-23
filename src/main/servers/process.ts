@@ -51,6 +51,9 @@ export interface ProcessManagerDeps {
   kill: (pid: number) => Promise<void>
   onStatus: (event: ServerStatusEvent) => void
   onLog: (event: ServerLogEvent) => void
+  /** Receives console lines hidden because they answer a quiet command. */
+  onQuietLine?: (serverId: string, line: string) => void
+  quietMs?: number
   batchMs?: number
   maxLogLines?: number
 }
@@ -62,6 +65,7 @@ interface Entry {
   stopRequested: boolean
   exitWaiters: (() => void)[]
   batcher: Batcher<string>
+  quiet: { until: number; isReply: (line: string) => boolean } | null
 }
 
 export class ProcessManager {
@@ -96,6 +100,7 @@ export class ProcessManager {
     const args = buildJavaArgs(rec)
     const entry = this.entry(rec.id)
     entry.stopRequested = false
+    entry.quiet = null
     this.append(rec.id, `[Blockhost] Starting: "${javaPath}" ${args.join(' ')}`)
 
     const child = this.deps.spawn(javaPath, args, rec.dir)
@@ -108,7 +113,8 @@ export class ProcessManager {
 
     const onLine = (line: string): void => {
       const clean = stripAnsi(line)
-      this.append(rec.id, clean)
+      if (this.isQuietReply(entry, clean)) this.deps.onQuietLine?.(rec.id, clean)
+      else this.append(rec.id, clean)
       if (entry.status === 'starting' && DONE_PATTERN.test(clean)) this.setStatus(rec.id, 'running')
     }
     const stdout = new LineSplitter(onLine)
@@ -143,6 +149,18 @@ export class ProcessManager {
     child.stdin.write(`${command}\n`)
   }
 
+  pid(id: string): number | undefined {
+    return this.entries.get(id)?.child?.pid
+  }
+
+  /** Sends a command without echoing it, hiding reply lines for a short window. */
+  sendQuietCommand(id: string, command: string, isReply: (line: string) => boolean): void {
+    const entry = this.entries.get(id)
+    if (!entry?.child) throw new AppError('NOT_RUNNING', 'The server is not running')
+    entry.quiet = { until: Date.now() + (this.deps.quietMs ?? 3000), isReply }
+    entry.child.stdin.write(`${command}\n`)
+  }
+
   stop(id: string): void {
     const entry = this.entries.get(id)
     if (!entry?.child) return
@@ -175,6 +193,16 @@ export class ProcessManager {
     })
   }
 
+  private isQuietReply(entry: Entry, line: string): boolean {
+    const quiet = entry.quiet
+    if (!quiet) return false
+    if (Date.now() >= quiet.until) {
+      entry.quiet = null
+      return false
+    }
+    return quiet.isReply(line)
+  }
+
   private entry(id: string): Entry {
     let entry = this.entries.get(id)
     if (!entry) {
@@ -186,7 +214,8 @@ export class ProcessManager {
         exitWaiters: [],
         batcher: new Batcher<string>(this.deps.batchMs ?? 50, (lines) =>
           this.deps.onLog({ serverId: id, lines })
-        )
+        ),
+        quiet: null
       }
       this.entries.set(id, entry)
     }
