@@ -143,8 +143,10 @@ export class ProcessManager {
   }
 
   sendCommand(id: string, command: string): void {
-    const child = this.entries.get(id)?.child
-    if (!child) throw new AppError('NOT_RUNNING', 'The server is not running')
+    const entry = this.entries.get(id)
+    const child = entry?.child
+    if (!entry || !child) throw new AppError('NOT_RUNNING', 'The server is not running')
+    entry.quiet = null // a user command's reply must stay visible
     this.append(id, `> ${command}`)
     child.stdin.write(`${command}\n`)
   }

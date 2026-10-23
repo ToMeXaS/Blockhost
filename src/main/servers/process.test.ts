@@ -243,6 +243,19 @@ describe('ProcessManager quiet commands', () => {
     expect(logs.flatMap((e) => e.lines)).not.toContain(TPS_LINE)
   })
 
+  it('shows replies to a command the user types during a quiet window', async () => {
+    const { child, quietLines, manager } = setup()
+    manager.start(rec, 'java')
+    manager.sendQuietCommand('s1', 'tps', isTps)
+    manager.sendCommand('s1', 'tps')
+    child.stdout.write(`${TPS_LINE}
+`)
+    await tick()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(quietLines).toEqual([])
+    expect(manager.getLog('s1')).toContain(TPS_LINE)
+  })
+
   it('stops hiding once the quiet window has passed', async () => {
     const { child, quietLines, manager } = setup({ quietMs: 0 })
     manager.start(rec, 'java')

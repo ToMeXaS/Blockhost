@@ -120,6 +120,18 @@ describe('StatsService', () => {
     expect(events[0].point.tps).toBe(19.5)
   })
 
+  it('reports TPS as null once the latest reply is stale', () => {
+    const { service, events, setClock } = setup()
+    service.onStatus({ serverId: ID, status: 'running' })
+    service.onQuietLine(ID, '[12:00:00 INFO]: TPS from last 1m, 5m, 15m: 19.5, 20.0, 20.0')
+    setClock(5000)
+    vi.advanceTimersByTime(5000)
+    expect(events[0].point.tps).toBe(19.5)
+    setClock(31_000)
+    vi.advanceTimersByTime(5000)
+    expect(events[1].point.tps).toBeNull()
+  })
+
   it('swallows a quiet-command failure from a server that just stopped', () => {
     const { service, processes } = setup()
     processes.sendQuietCommand.mockImplementation(() => {

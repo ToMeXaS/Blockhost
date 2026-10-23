@@ -30,6 +30,13 @@ describe('parseTps', () => {
     expect(parseTps('[12:00:00 INFO]: TPS from last 1m, 5m, 15m: 17,5, 18,0, 19,0')).toBe(17.5)
   })
 
+  it('reads the 1-minute value from a 5s-average line', () => {
+    const head = '[12:00:00 INFO]: TPS from last 5s, 1m, 5m, 15m: '
+    expect(parseTps(`${head}20.0, 19.8, 20.0, 20.0`)).toBe(19.8)
+    expect(parseTps(`${head}*20.0, *20.0, *20.0, *20.0`)).toBe(20)
+    expect(parseTps(`${head}17,5, 18,5, 19,0, 19,0`)).toBe(18.5)
+  })
+
   it('turns vanilla average tick time into TPS, capped at the target rate', () => {
     expect(parseTps('Average time per tick: 1.2ms (Target: 50.0ms)')).toBe(20)
     expect(parseTps('Average time per tick: 62.5ms (Target: 50.0ms)')).toBe(16)
@@ -52,6 +59,7 @@ describe('parseTps', () => {
 describe('isTpsReply', () => {
   it.each([
     '[12:00:00 INFO]: TPS from last 1m, 5m, 15m: 19.8, 20.0, 20.0',
+    '[12:00:00 INFO]: TPS from last 5s, 1m, 5m, 15m: 20.0, 19.8, 20.0, 20.0',
     '[12:00:00] [Server thread/INFO]: The game is running normally',
     '[12:00:00] [Server thread/INFO]: The game is frozen',
     '[12:00:00] [Server thread/INFO]: The game is sprinting',

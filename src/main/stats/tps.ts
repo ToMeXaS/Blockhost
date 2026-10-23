@@ -9,11 +9,13 @@ const TICK_COMMAND_SINCE = '1.20.3'
 // Optional "[...]" logger groups and ": " before the message; continuation lines have none.
 const PREFIX = String.raw`^(?:(?:\[[^\]]*\]\s*)+:\s)?`
 const NUM = String.raw`(\d+(?:[.,]\d+)?)`
-const PAPER_TPS = new RegExp(`${PREFIX}TPS from last 1m, 5m, 15m: \\*?${NUM}`)
+const PAPER_TPS = new RegExp(
+  `${PREFIX}TPS from last (5s, )?1m, 5m, 15m: \\*?${NUM}(?:, \\*?${NUM})?`
+)
 const AVG_TICK = new RegExp(`${PREFIX}Average time per tick: ${NUM}ms(?: \\(Target: ${NUM}ms\\))?`)
 const REPLY = new RegExp(
   `${PREFIX}(?:${[
-    'TPS from last 1m, 5m, 15m:',
+    'TPS from last (?:5s, )?1m, 5m, 15m:',
     "The game is (?:running normally|frozen|sprinting|running, but can't keep up)",
     'Target tick rate:',
     'Average time per tick:',
@@ -33,7 +35,7 @@ const toNumber = (text: string): number => Number(text.replace(',', '.'))
 
 export function parseTps(line: string): number | null {
   const paper = PAPER_TPS.exec(line)
-  if (paper) return Math.min(MAX_TPS, toNumber(paper[1]))
+  if (paper) return Math.min(MAX_TPS, toNumber(paper[1] ? (paper[3] ?? paper[2]) : paper[2]))
   const avg = AVG_TICK.exec(line)
   if (!avg) return null
   const ms = toNumber(avg[1])

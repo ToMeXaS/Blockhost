@@ -32,6 +32,7 @@ interface Live {
   sampledAt: number
   prev: { cpuMs: number; at: number } | null
   tps: number | null
+  tpsAt: number
   pointTimer: ReturnType<typeof setInterval>
   tpsTimer?: ReturnType<typeof setInterval>
 }
@@ -83,7 +84,9 @@ export class StatsService {
   onQuietLine(serverId: string, line: string): void {
     const live = this.live.get(serverId)
     const tps = parseTps(line)
-    if (live && tps !== null) live.tps = round1(tps)
+    if (!live || tps === null) return
+    live.tps = round1(tps)
+    live.tpsAt = (this.deps.now ?? Date.now)()
   }
 
   snapshot(serverId: string): StatsSnapshot {
@@ -113,6 +116,7 @@ export class StatsService {
       sampledAt: Number.NEGATIVE_INFINITY,
       prev: null,
       tps: null,
+      tpsAt: Number.NEGATIVE_INFINITY,
       pointTimer: setInterval(() => this.pushPoint(serverId), this.pointMs)
     }
     this.live.set(serverId, live)
@@ -140,7 +144,7 @@ export class StatsService {
       at,
       cpu: fresh ? live.cpu : null,
       memBytes: fresh ? live.memBytes : null,
-      tps: live.tps
+      tps: at - live.tpsAt <= 2 * (this.deps.tpsIntervalMs ?? TPS_INTERVAL_MS) ? live.tps : null
     }
     this.history.push(serverId, point)
     this.deps.emit({ serverId, point, samplerAvailable: this.deps.sampler.available })
