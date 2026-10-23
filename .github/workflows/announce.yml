@@ -1,0 +1,91 @@
+# Posts a release to Discord once it's published (not while it's a draft), as an
+# embed with the version, commit, installer size and release notes. The webhook URL
+# lives in the DISCORD_WEBHOOK_URL secret. Run it by hand to re-send an announcement.
+
+name: Announce release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published release tag to announce, e.g. v0.5.0'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  discord:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - name: Post the release to Discord
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::error::The DISCORD_WEBHOOK_URL secret is not set"
+            exit 1
+          fi
+          gh api "repos/$REPO/releases/tags/$TAG" > release.json
+          sha="$(gh api "repos/$REPO/commits/$TAG" --jq .sha)"
+          # The newest published release before this one.
+          prev="$(gh api "repos/$REPO/releases?per_page=20" \
+            --jq "[.[] | select(.draft | not) | select(.tag_name != \"$TAG\")][0].tag_name // empty")"
+
+          jq -n \
+            --slurpfile r release.json \
+            --arg repo "$REPO" \
+            --arg owner "${{ github.repository_owner }}" \
+            --arg sha "$sha" \
+            --arg prev "$prev" \
+            --arg run "$RUN_URL" \
+            --arg server "${{ github.server_url }}" '
+            $r[0] as $rel
+            | ($rel.tag_name | ltrimstr("v")) as $version
+            | ([$rel.assets[] | select(.name | endswith("-setup.exe"))][0]) as $exe
+            | ($rel.body // ""
+                | gsub("\r"; "")
+                | gsub("\n*\\*\\*Full changelog\\*\\*[^\n]*"; "")
+                | gsub("^## (?<h>[^\n]+)"; "**\(.h)**")
+                | gsub("\n## (?<h>[^\n]+)"; "\n**\(.h)**")) as $notes
+            | {
+                username: "Blockhost",
+                embeds: [{
+                  author: { name: $owner, icon_url: "\($server)/\($owner).png", url: "\($server)/\($owner)" },
+                  title: "📦 Blockhost \($version) released",
+                  url: $rel.html_url,
+                  color: 9168747,
+                  description: (if ($notes | length) > 3500 then $notes[0:3500] + "…" else $notes end),
+                  fields: ([
+                    { name: "Repository", value: "[\($repo)](\($server)/\($repo))", inline: true },
+                    { name: "Version", value: "[\($rel.tag_name)](\($rel.html_url))", inline: true },
+                    { name: "Commit", value: "[\($sha[0:7])](\($server)/\($repo)/commit/\($sha))", inline: true }
+                  ]
+                  + (if $exe then [{
+                      name: "Installer & Size",
+                      value: "`\($exe.name)` (`\(($exe.size / 1048576 * 10 | round) / 10) MB`)",
+                      inline: true
+                    }] else [] end)
+                  + (if $prev != "" then [{
+                      name: "From → To", value: "`\($prev)` → `\($rel.tag_name)`", inline: true
+                    }] else [] end)
+                  + [{
+                      name: "​",
+                      value: ((if $exe then "[[Download installer]](\($exe.browser_download_url))  " else "" end)
+                        + "[[View release]](\($rel.html_url))  [[View run]](\($run))"),
+                      inline: false
+                    }]),
+                  footer: { text: "Release via GitHub Actions" },
+                  timestamp: ($rel.published_at // $rel.created_at)
+                }]
+              }' > payload.json
+          cat payload.json
+
+          curl --fail-with-body -sS -H "Content-Type: application/json" -d @payload.json "$WEBHOOK"
