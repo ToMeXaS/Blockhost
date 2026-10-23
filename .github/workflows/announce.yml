@@ -24,7 +24,6 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
-      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
     steps:
       - name: Post the release to Discord
@@ -45,7 +44,6 @@ jobs:
             --arg owner "${{ github.repository_owner }}" \
             --arg sha "$sha" \
             --arg prev "$prev" \
-            --arg run "$RUN_URL" \
             --arg server "${{ github.server_url }}" '
             $r[0] as $rel
             | ($rel.tag_name | ltrimstr("v")) as $version
@@ -79,7 +77,7 @@ jobs:
                   + [{
                       name: "​",
                       value: ((if $exe then "[[Download installer]](\($exe.browser_download_url))  " else "" end)
-                        + "[[View release]](\($rel.html_url))  [[View run]](\($run))"),
+                        + "[[View release]](\($rel.html_url))"),
                       inline: false
                     }]),
                   footer: { text: "Release via GitHub Actions" },
