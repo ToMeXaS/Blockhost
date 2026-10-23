@@ -45,10 +45,19 @@ function handle<A extends unknown[]>(
   })
 }
 
+/** What the renderer may do with app updates. */
+export interface UpdateControls {
+  status(): UpdateStatus
+  requestInstall(): void
+  check(): Promise<UpdateStatus>
+  download(): void
+  setAuto(on: boolean): Promise<void>
+}
+
 export function registerIpc(
   services: Services,
   getWindow: () => BrowserWindow | null,
-  updates: { status(): UpdateStatus; requestInstall(): void }
+  updates: UpdateControls
 ): void {
   const {
     servers,
@@ -214,4 +223,7 @@ export function registerIpc(
 
   handle('update:getStatus', z.tuple([]), () => updates.status())
   handle('update:install', z.tuple([]), () => updates.requestInstall())
+  handle('update:check', z.tuple([]), () => updates.check())
+  handle('update:download', z.tuple([]), () => updates.download())
+  handle('update:setAuto', z.tuple([z.boolean()]), (on) => updates.setAuto(on))
 }

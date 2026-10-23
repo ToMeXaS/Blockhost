@@ -118,6 +118,9 @@ export const api = {
 
   getUpdateStatus: () => call<UpdateStatus>('update:getStatus'),
   installUpdate: () => call<void>('update:install'),
+  checkForUpdates: () => call<UpdateStatus>('update:check'),
+  downloadUpdate: () => call<void>('update:download'),
+  setAutoUpdate: (on: boolean) => call<void>('update:setAuto', on),
 
   on: <C extends EventChannel>(channel: C, listener: (payload: EventPayloads[C]) => void) =>
     bridge.on(channel, listener)

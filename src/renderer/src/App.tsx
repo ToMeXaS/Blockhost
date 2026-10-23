@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/AppShell'
 import { ErrorText, pageClass } from './components/ui'
-import { useUpdateStatus } from './components/UpdateBanner'
 import { useOnlinePlayers } from './hooks/useOnlinePlayers'
 import { useServers } from './hooks/useServers'
 import { api } from './lib/api'
@@ -17,7 +16,6 @@ export default function App() {
   const [route, setRoute] = useState<Route>({ name: 'list' })
   const [offline, setOffline] = useState(false)
   const lastSection = useRef(new Map<string, Section>())
-  const updateStatus = useUpdateStatus()
 
   useEffect(() => api.on('net:offline', () => setOffline(true)), [])
 
@@ -45,7 +43,6 @@ export default function App() {
       current={current}
       section={route.name === 'server' ? route.section : undefined}
       onlineCount={online.length}
-      version={updateStatus?.currentVersion}
       offline={offline}
       onSection={setSection}
       onOpenServer={openServer}

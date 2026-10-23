@@ -50,6 +50,7 @@ export interface Services {
   stats: StatsService
   backups: BackupService
   backupScheduler: BackupScheduler
+  settings: SettingsStore
 }
 
 export async function createServices(opts: {
@@ -197,6 +198,7 @@ export async function createServices(opts: {
     content,
     stats,
     backups,
-    backupScheduler
+    backupScheduler,
+    settings
   }
 }

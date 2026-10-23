@@ -177,17 +177,24 @@ if (!app.requestSingleInstanceLock()) {
     updates = new UpdateService({
       updater: autoUpdater,
       enabled: app.isPackaged,
+      auto: services.settings.get().autoUpdate ?? true,
       currentVersion: app.getVersion(),
       emit: (status) => send('update:status', status)
     })
     registerIpc(services, () => mainWindow, {
       status: () => updates!.status(),
-      requestInstall: requestUpdateInstall
+      requestInstall: requestUpdateInstall,
+      check: () => updates!.check({ manual: true }),
+      download: () => updates!.download(),
+      setAuto: async (on) => {
+        await services!.settings.setAutoUpdate(on)
+        updates!.setAuto(on)
+      }
     })
     createWindow()
     updates.start()
     services.backupScheduler.start()
     // Timers stall while the machine sleeps, so check as soon as it wakes.
-    powerMonitor.on('resume', () => updates?.check())
+    powerMonitor.on('resume', () => void updates?.check())
   })
 }

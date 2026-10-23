@@ -49,4 +49,24 @@ describe('SettingsStore', () => {
     await store.load()
     expect(store.get()).toEqual({})
   })
+
+  it('saves and reloads autoUpdate, and keeps it when the backups folder is reset', async () => {
+    const file = join(tmp, 'settings.json')
+    const store = new SettingsStore(file)
+    await store.load()
+    await store.setAutoUpdate(false)
+    await store.setBackupsDir('D:\Backups')
+    await store.setBackupsDir(null)
+    const again = new SettingsStore(file)
+    await again.load()
+    expect(again.get()).toEqual({ autoUpdate: false })
+  })
+
+  it('ignores an autoUpdate that is not a boolean', async () => {
+    const file = join(tmp, 'settings.json')
+    await writeFile(file, JSON.stringify({ version: 1, autoUpdate: 'no' }))
+    const store = new SettingsStore(file)
+    await store.load()
+    expect(store.get()).toEqual({})
+  })
 })

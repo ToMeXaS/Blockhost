@@ -18,7 +18,7 @@ import {
   SettingsIcon
 } from './icons'
 import { Menu, type MenuEntry } from './ui'
-import { UpdateBanner } from './UpdateBanner'
+import { UpdateCard, UpdateReadyButton } from './UpdateCard'
 
 const SECTION_ICONS: Record<Section, ReactNode> = {
   overview: <OverviewIcon />,
@@ -37,7 +37,6 @@ interface Props {
   current?: ServerView
   section?: Section
   onlineCount: number
-  version?: string
   offline: boolean
   onSection: (section: Section) => void
   onOpenServer: (id: string) => void
@@ -131,7 +130,6 @@ export function AppShell({
   current,
   section,
   onlineCount,
-  version,
   offline,
   onSection,
   onOpenServer,
@@ -204,10 +202,10 @@ export function AppShell({
 
         <div className="hidden space-y-3 p-3 min-[1000px]:block">
           {current && <DiskUsagePanel server={current} />}
-          <UpdateBanner />
-          {version && (
-            <div className="px-2 font-mono text-[11px] text-faint">Blockhost v{version}</div>
-          )}
+          <UpdateCard />
+        </div>
+        <div className="p-3 min-[1000px]:hidden">
+          <UpdateReadyButton />
         </div>
       </aside>
 
@@ -217,9 +215,6 @@ export function AppShell({
             You seem to be offline. Version lists may be out of date.
           </div>
         )}
-        <div className="px-8 pt-3 min-[1000px]:hidden">
-          <UpdateBanner />
-        </div>
         {children}
       </main>
     </div>

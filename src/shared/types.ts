@@ -127,6 +127,10 @@ export type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'r
 export interface UpdateStatus {
   state: UpdateState
   currentVersion: string
+  /** False in dev builds, where nothing can be checked or installed. */
+  enabled: boolean
+  /** Check, download and install in the background. */
+  auto: boolean
   /** Version being downloaded / ready to install. */
   version?: string
   percent?: number

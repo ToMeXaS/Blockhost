@@ -4,6 +4,8 @@ import { writeFileAtomic } from './util/fs'
 export interface AppSettings {
   /** Where backups go; absent means `<dataDir>/backups`. */
   backupsDir?: string
+  /** Check for, download and install updates in the background; absent means on. */
+  autoUpdate?: boolean
 }
 
 /** settings.json: app-wide preferences. Reads are from memory; writes are serialized. */
@@ -26,7 +28,10 @@ export class SettingsStore {
     }
     try {
       const data = JSON.parse(text) as Record<string, unknown>
-      this.settings = typeof data.backupsDir === 'string' ? { backupsDir: data.backupsDir } : {}
+      const settings: AppSettings = {}
+      if (typeof data.backupsDir === 'string') settings.backupsDir = data.backupsDir
+      if (typeof data.autoUpdate === 'boolean') settings.autoUpdate = data.autoUpdate
+      this.settings = settings
     } catch {
       await rename(this.file, `${this.file}.corrupt-${Date.now()}`)
       this.settings = {}
@@ -39,7 +44,15 @@ export class SettingsStore {
 
   /** `null` goes back to the default folder. */
   setBackupsDir(dir: string | null): Promise<void> {
-    this.settings = dir === null ? {} : { ...this.settings, backupsDir: dir }
+    const next = { ...this.settings }
+    if (dir === null) delete next.backupsDir
+    else next.backupsDir = dir
+    this.settings = next
+    return this.save()
+  }
+
+  setAutoUpdate(on: boolean): Promise<void> {
+    this.settings = { ...this.settings, autoUpdate: on }
     return this.save()
   }
 

@@ -65,7 +65,10 @@ export const INVOKE_CHANNELS = [
   'system:pickJava',
   'system:openExternal',
   'update:getStatus',
-  'update:install'
+  'update:install',
+  'update:check',
+  'update:download',
+  'update:setAuto'
 ] as const
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]
 
