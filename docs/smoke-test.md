@@ -40,7 +40,7 @@ Run on a clean Windows 10/11 machine (no Java installed) using `dist/Blockhost-<
 - [ ] Performance: on a running Paper server, the Overview tiles show TPS (Healthy), memory as `x.x / <RAM> GB` with a %, and CPU % with the core count; values change every ~5 seconds
 - [ ] Performance: the Console shows no `tps` commands or `TPS from last…` replies while stats are polled, and typing `tps` yourself (try several times) still shows the reply
 - [ ] Performance: a vanilla 1.21 server shows TPS from `tick query` with a clean console; a vanilla 1.20.1 server shows TPS "Not available"
-- [ ] Performance: a Purpur server shows TPS with a clean console (no `TPS from last�` lines every 15 seconds)
+- [ ] Performance: a Purpur server shows TPS with a clean console (no `TPS from last…` lines every 15 seconds)
 - [ ] Performance: the chart draws CPU, memory and dashed TPS lines after ~10 seconds, hovering shows a readout, and stopping the server resets the tiles to "—"/Offline and the chart to "Start the server to see performance"
 - [ ] Performance: Task Manager shows one `powershell.exe` child of Blockhost while a server runs and none after all servers stop
 - [ ] Uninstall via Windows Settings removes the app (server folders remain)
