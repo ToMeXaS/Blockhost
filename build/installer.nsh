@@ -37,3 +37,25 @@ Var pid
   DetailPrint "Registered the uninstaller in Settings > Apps"
   DetailPrint "Blockhost ${VERSION} is installed."
 !macroend
+
+; The uninstaller also runs silently (/S) during updates, so these only show when the
+; user uninstalls from Settings > Apps.
+!macro customUnWelcomePage
+  !define MUI_WELCOMEPAGE_TITLE "Uninstall Blockhost ${VERSION}"
+  !define MUI_WELCOMEPAGE_TEXT "This will remove Blockhost from this PC.$\r$\n$\r$\nYour servers in Documents\MinecraftServers and your settings and backups in %APPDATA%\Blockhost are kept, so reinstalling picks up where you left off. Delete those folders yourself if you no longer need them.$\r$\n$\r$\nIf Blockhost is open, it will be closed first.$\r$\n$\r$\nClick Next to continue."
+  !insertmacro MUI_UNPAGE_WELCOME
+!macroend
+
+; Runs inside the uninstall section, before the files and shortcuts are removed.
+!macro customUnInstall
+  DetailPrint "Removing Blockhost ${VERSION} from $INSTDIR"
+  DetailPrint "Removing the Start menu and desktop shortcuts..."
+  DetailPrint "Removing Blockhost from Settings > Apps..."
+!macroend
+
+; A section after electron-builder's, so this prints once everything is gone.
+!macro customUnInstallSection
+  Section "un.Done"
+    DetailPrint "Blockhost is uninstalled. Your servers, settings and backups were kept."
+  SectionEnd
+!macroend
