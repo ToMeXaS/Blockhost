@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { matchesFilter, parseLogLevel } from './logLevel'
+import { logTime, matchesFilter, parseLogLevel } from './logLevel'
 
 describe('parseLogLevel', () => {
   it('reads a vanilla INFO line and its prefix length', () => {
@@ -27,6 +27,13 @@ describe('parseLogLevel', () => {
       level: 'info',
       tagEnd: '[12:00:00] [Server thread/INFO] [minecraft/DedicatedServer]: '.length
     })
+  })
+
+  it('hides the Paper 26.x "System chat: " marker in the prefix', () => {
+    const text = '[20:25:17] [Server thread/INFO]: System chat: ToMeXaS joined the game'
+    const { level, tagEnd } = parseLogLevel(text)
+    expect(level).toBe('info')
+    expect(text.slice(tagEnd)).toBe('ToMeXaS joined the game')
   })
 
   it('detects chat lines', () => {
@@ -65,5 +72,20 @@ describe('matchesFilter', () => {
   it('shows only chat for chat', () => {
     expect(matchesFilter('chat', 'chat')).toBe(true)
     expect(matchesFilter('cmd', 'chat')).toBe(false)
+  })
+})
+
+describe('logTime', () => {
+  it('reads the time from vanilla, Paper and Forge prefixes', () => {
+    const vanilla = '[12:00:01] [Server thread/INFO]: Done'
+    const paper = '[12:00:02 INFO]: Done'
+    const forge = '[18Oct2026 12:00:03.123] [Server thread/INFO] [minecraft/DedicatedServer]: Done'
+    expect(logTime(vanilla, parseLogLevel(vanilla).tagEnd)).toBe('12:00:01')
+    expect(logTime(paper, parseLogLevel(paper).tagEnd)).toBe('12:00:02')
+    expect(logTime(forge, parseLogLevel(forge).tagEnd)).toBe('12:00:03')
+  })
+
+  it('ignores times outside the prefix', () => {
+    expect(logTime('> say meet at 12:00:00', 0)).toBeUndefined()
   })
 })

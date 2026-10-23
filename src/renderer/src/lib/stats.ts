@@ -3,6 +3,7 @@ import type { StatsPoint } from '../../../shared/types'
 /** One hour of 5-second points, matching the main process. */
 export const MAX_POINTS = 720
 export const CHART_BUCKETS = 120
+export const CHART_WINDOW_MS = 60 * 60_000
 export const MAX_TPS = 20
 
 export type TpsHealth = 'healthy' | 'lagging' | 'struggling'
@@ -39,29 +40,32 @@ function average(values: (number | null)[]): number | null {
   return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null
 }
 
-/** Reduces points to at most `buckets` by averaging neighbours (gaps stay gaps). */
+/**
+ * Averages points into `buckets` equal time slots over the `windowMs` ending at `end`,
+ * so the chart's x axis is real time. Slots without data stay null (a gap).
+ */
 export function downsample(
   points: StatsPoint[],
   allocatedMb: number,
-  buckets = CHART_BUCKETS
+  end: number,
+  buckets = CHART_BUCKETS,
+  windowMs = CHART_WINDOW_MS
 ): ChartPoint[] {
   const mem = (pt: StatsPoint): number | null =>
     pt.memBytes === null ? null : memPercent(pt.memBytes, allocatedMb)
-  if (points.length <= buckets) {
-    return points.map((pt) => ({ at: pt.at, cpu: pt.cpu, mem: mem(pt), tps: pt.tps }))
+  const size = windowMs / buckets
+  const start = end - windowMs
+  const groups: StatsPoint[][] = Array.from({ length: buckets }, () => [])
+  for (const pt of points) {
+    const b = Math.ceil((pt.at - start) / size) - 1
+    if (b >= 0 && b < buckets) groups[b].push(pt)
   }
-  const size = points.length / buckets
-  const out: ChartPoint[] = []
-  for (let b = 0; b < buckets; b++) {
-    const slice = points.slice(Math.floor(b * size), Math.floor((b + 1) * size))
-    out.push({
-      at: slice[slice.length - 1].at,
-      cpu: average(slice.map((pt) => pt.cpu)),
-      mem: average(slice.map(mem)),
-      tps: average(slice.map((pt) => pt.tps))
-    })
-  }
-  return out
+  return groups.map((group, b) => ({
+    at: start + (b + 1) * size,
+    cpu: average(group.map((pt) => pt.cpu)),
+    mem: average(group.map(mem)),
+    tps: average(group.map((pt) => pt.tps))
+  }))
 }
 
 const coord = (n: number): number => Math.round(n * 10) / 10

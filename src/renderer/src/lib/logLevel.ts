@@ -10,8 +10,9 @@ export interface ParsedLine {
 // Vanilla/Fabric: "[12:00:00] [Server thread/INFO]: msg"
 // Forge/NeoForge: "[12:00:00] [Server thread/INFO] [minecraft/DedicatedServer]: msg"
 // Paper/Purpur:   "[12:00:00 INFO]: msg"
+// Paper 26.x also starts system messages with "System chat: ", which counts as prefix.
 const PREFIX =
-  /^((?:\[[^\]]*\]\s*)?\[[^\]]*?[/ ](INFO|WARN|WARNING|ERROR|SEVERE|FATAL|DEBUG|TRACE)\](?:\s*\[[^\]]*\])?:?\s*)(.*)$/
+  /^((?:\[[^\]]*\]\s*)?\[[^\]]*?[/ ](INFO|WARN|WARNING|ERROR|SEVERE|FATAL|DEBUG|TRACE)\](?:\s*\[[^\]]*\])?:?\s*(?:System chat: )?)(.*)$/
 const CHAT = /^(?:\[Not Secure\]\s*)?<[^>]+>\s/
 
 function levelOf(tag: string, message: string): LogLevel {
@@ -34,6 +35,23 @@ export function matchesFilter(level: LogLevel, filter: LogFilter): boolean {
   if (filter === 'warnings') return level === 'warn' || level === 'error'
   if (filter === 'chat') return level === 'chat'
   return true
+}
+
+const TIME = /\b(\d{1,2}:\d{2}:\d{2})/
+
+/** The "HH:MM:SS" inside a line's prefix, if it has one. */
+export function logTime(text: string, tagEnd: number): string | undefined {
+  return TIME.exec(text.slice(0, tagEnd))?.[1]
+}
+
+export const LEVEL_LABEL: Record<LogLevel, string> = {
+  info: 'INFO',
+  warn: 'WARN',
+  error: 'ERROR',
+  chat: 'CHAT',
+  cmd: '',
+  system: '',
+  plain: ''
 }
 
 export const LEVEL_TEXT: Record<LogLevel, string> = {

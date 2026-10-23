@@ -11,6 +11,8 @@ const BOTTOM = 190
 const pctY = (v: number): number => BOTTOM - (Math.min(100, Math.max(0, v)) / 100) * (BOTTOM - TOP)
 const tpsY = (v: number): number => pctY((v / MAX_TPS) * 100)
 
+const AXIS_LABELS = ['-60m', '-45m', '-30m', '-15m', 'now']
+
 const LINE = {
   fill: 'none',
   strokeLinejoin: 'round',
@@ -45,10 +47,11 @@ interface Props {
 }
 
 export function PerformanceChart({ points, allocatedMb, showTps }: Props) {
-  const data = useMemo(() => downsample(points, allocatedMb), [points, allocatedMb])
+  const end = points.at(-1)?.at ?? 0
+  const data = useMemo(() => downsample(points, allocatedMb, end), [points, allocatedMb, end])
   const [hover, setHover] = useState<number | null>(null)
 
-  if (data.length < 2) {
+  if (points.length < 2) {
     return <p className="text-sm text-faint">Collecting data…</p>
   }
 
@@ -67,97 +70,102 @@ export function PerformanceChart({ points, allocatedMb, showTps }: Props) {
     v === null ? '—' : `${((v / 100) * (allocatedMb / 1024)).toFixed(1)} GB`
 
   return (
-    <div className="relative">
-      <svg
-        role="img"
-        aria-label="CPU, memory and TPS over the last hour"
-        width="100%"
-        height={HEIGHT}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        preserveAspectRatio="none"
-        className="block"
-        onMouseMove={onMove}
-        onMouseLeave={() => setHover(null)}
-      >
-        {[25, 50, 75].map((v) => (
-          <line
-            key={v}
-            x1={0}
-            x2={WIDTH}
-            y1={pctY(v)}
-            y2={pctY(v)}
-            stroke="var(--color-border)"
-            strokeWidth={1}
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
-        {polylineSegments(
-          data.map((d) => d.mem),
-          pctY,
-          WIDTH
-        ).map((pts, i) => (
-          <polyline
-            key={`mem${i}`}
-            points={pts}
-            stroke="var(--color-info)"
-            strokeWidth={2}
-            {...LINE}
-          />
-        ))}
-        {polylineSegments(
-          data.map((d) => d.cpu),
-          pctY,
-          WIDTH
-        ).map((pts, i) => (
-          <polyline
-            key={`cpu${i}`}
-            points={pts}
-            stroke="var(--color-accent)"
-            strokeWidth={2}
-            {...LINE}
-          />
-        ))}
-        {showTps &&
-          polylineSegments(
-            data.map((d) => d.tps),
-            tpsY,
+    <div className="flex h-full min-h-[120px] flex-col">
+      <div className="relative min-h-0 flex-1">
+        <svg
+          role="img"
+          aria-label="CPU, memory and TPS over the last hour"
+          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          preserveAspectRatio="none"
+          className="absolute inset-0 block h-full w-full"
+          onMouseMove={onMove}
+          onMouseLeave={() => setHover(null)}
+        >
+          {[25, 50, 75].map((v) => (
+            <line
+              key={v}
+              x1={0}
+              x2={WIDTH}
+              y1={pctY(v)}
+              y2={pctY(v)}
+              stroke="var(--color-border)"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          {polylineSegments(
+            data.map((d) => d.mem),
+            pctY,
             WIDTH
           ).map((pts, i) => (
             <polyline
-              key={`tps${i}`}
+              key={`mem${i}`}
               points={pts}
-              stroke="var(--color-warn)"
-              strokeWidth={1.5}
-              strokeDasharray="4 4"
+              stroke="var(--color-info)"
+              strokeWidth={2}
               {...LINE}
             />
           ))}
+          {polylineSegments(
+            data.map((d) => d.cpu),
+            pctY,
+            WIDTH
+          ).map((pts, i) => (
+            <polyline
+              key={`cpu${i}`}
+              points={pts}
+              stroke="var(--color-accent)"
+              strokeWidth={2}
+              {...LINE}
+            />
+          ))}
+          {showTps &&
+            polylineSegments(
+              data.map((d) => d.tps),
+              tpsY,
+              WIDTH
+            ).map((pts, i) => (
+              <polyline
+                key={`tps${i}`}
+                points={pts}
+                stroke="var(--color-warn)"
+                strokeWidth={1.5}
+                strokeDasharray="4 4"
+                {...LINE}
+              />
+            ))}
+          {point && (
+            <line
+              x1={x}
+              x2={x}
+              y1={TOP}
+              y2={BOTTOM}
+              stroke="var(--color-border-strong)"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+        </svg>
         {point && (
-          <line
-            x1={x}
-            x2={x}
-            y1={TOP}
-            y2={BOTTOM}
-            stroke="var(--color-border-strong)"
-            strokeWidth={1}
-            vectorEffect="non-scaling-stroke"
-          />
+          <div
+            className="pointer-events-none absolute top-2 rounded-btn border border-border bg-sidebar px-3 py-2 font-mono text-xs leading-5 text-text-2"
+            style={{
+              left: `${(x / WIDTH) * 100}%`,
+              transform: x > WIDTH / 2 ? 'translateX(calc(-100% - 8px))' : 'translateX(8px)'
+            }}
+          >
+            <div className="text-faint">{formatUptime(Date.now() - point.at)} ago</div>
+            <div>CPU {pct(point.cpu)}</div>
+            <div>Memory {gb(point.mem)}</div>
+            {showTps && <div>TPS {point.tps === null ? '—' : point.tps.toFixed(1)}</div>}
+          </div>
         )}
-      </svg>
-      {point && (
-        <div
-          className="pointer-events-none absolute top-2 rounded-btn border border-border bg-sidebar px-3 py-2 font-mono text-xs leading-5 text-text-2"
-          style={{
-            left: `${(x / WIDTH) * 100}%`,
-            transform: x > WIDTH / 2 ? 'translateX(calc(-100% - 8px))' : 'translateX(8px)'
-          }}
-        >
-          <div className="text-faint">{formatUptime(Date.now() - point.at)} ago</div>
-          <div>CPU {pct(point.cpu)}</div>
-          <div>Memory {gb(point.mem)}</div>
-          {showTps && <div>TPS {point.tps === null ? '—' : point.tps.toFixed(1)}</div>}
-        </div>
-      )}
+      </div>
+      <div className="mt-3 flex justify-between font-mono text-[11px] text-faint">
+        {AXIS_LABELS.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
+      </div>
     </div>
   )
 }

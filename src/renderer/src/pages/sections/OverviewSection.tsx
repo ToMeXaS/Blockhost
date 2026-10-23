@@ -1,51 +1,57 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import {
-  CONTENT_LABELS,
-  type InstalledContentList,
-  type ServerView
-} from '../../../../shared/types'
-import { CopyIcon } from '../../components/icons'
-import { LogLine } from '../../components/LogLine'
+import { useEffect, useState } from 'react'
+import type { ServerView } from '../../../../shared/types'
+import { ConsolePanel } from '../../components/ConsolePanel'
+import { OnlinePlayersCard } from '../../components/OnlinePlayersCard'
 import { PerformanceChart, PerformanceLegend } from '../../components/PerformanceChart'
 import { PerformanceTiles } from '../../components/PerformanceTiles'
-import { Avatar, Button, Card, TextLink } from '../../components/ui'
-import { useCopy } from '../../hooks/useCopy'
-import { useLogTail } from '../../hooks/useLogTail'
+import { WorldsCard } from '../../components/WorldsCard'
+import { Card } from '../../components/ui'
+import { useBackups } from '../../hooks/useBackups'
 import { useServerStats } from '../../hooks/useServerStats'
-import { api } from '../../lib/api'
-import { formatUptime, serverAddress, STATUS_LABEL } from '../../lib/format'
-import { parseLogLevel } from '../../lib/logLevel'
-import type { Section } from '../../lib/routes'
+import { api, errorMessage } from '../../lib/api'
 
-const PREVIEW_LINES = 12
-const MAX_AVATARS = 8
+function BackupNowButton({ serverId }: { serverId: string }) {
+  const { progress } = useBackups(serverId)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const working = busy || progress !== null
 
-interface Props {
-  server: ServerView
-  online: string[]
-  runningSince?: number
-  onSection: (section: Section) => void
-}
+  const backUp = () => {
+    setBusy(true)
+    setError(null)
+    api
+      .backupsCreate(serverId)
+      .catch((err) => setError(errorMessage(err)))
+      .finally(() => setBusy(false))
+  }
 
-function Stat({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div>
-      <dt className="text-xs text-muted">{label}</dt>
-      <dd className="mt-1 font-mono text-sm text-text">{children}</dd>
+    <div className="space-y-2">
+      <button
+        type="button"
+        disabled={working}
+        onClick={backUp}
+        className="flex h-9 w-full items-center justify-center rounded-btn border border-dashed border-border-strong text-sm font-medium text-text-2 transition-colors hover:border-accent hover:text-text disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border-strong"
+      >
+        {progress?.op === 'restore'
+          ? 'Restoring…'
+          : working
+            ? `Backing up… ${Math.round(progress?.percent ?? 0)}%`
+            : 'Create backup now'}
+      </button>
+      {error && <p className="text-xs text-danger">{error}</p>}
     </div>
   )
 }
 
-export function OverviewSection({ server, online, runningSince, onSection }: Props) {
-  const tail = useLogTail(server.id, PREVIEW_LINES)
+interface Props {
+  server: ServerView
+  online: string[]
+}
+
+export function OverviewSection({ server, online }: Props) {
   const stats = useServerStats(server.id, server.status)
   const [maxPlayers, setMaxPlayers] = useState<number | null>(null)
-  const [content, setContent] = useState<InstalledContentList | null>(null)
-  const [contentFailed, setContentFailed] = useState(false)
-  const [now, setNow] = useState(() => Date.now())
-  const { copied, copy } = useCopy()
-  const contentLabel = CONTENT_LABELS[server.type]
-  const address = serverAddress(server)
   const running = server.status === 'running'
 
   useEffect(() => {
@@ -65,152 +71,42 @@ export function OverviewSection({ server, online, runningSince, onSection }: Pro
     }
   }, [server.id])
 
-  useEffect(() => {
-    if (!contentLabel) return
-    let alive = true
-    setContent(null)
-    setContentFailed(false)
-    api
-      .contentInstalled(server.id)
-      .then((list) => {
-        if (alive) setContent(list)
-      })
-      .catch(() => {
-        if (alive) setContentFailed(true)
-      })
-    return () => {
-      alive = false
-    }
-  }, [server.id, contentLabel])
-
-  useEffect(() => {
-    if (!running || runningSince === undefined) return
-    setNow(Date.now())
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [running, runningSince])
-
-  const uptime = running && runningSince !== undefined ? formatUptime(now - runningSince) : '—'
-  const updates = content?.items.filter((i) => i.update).length ?? 0
-
   return (
-    <div className="space-y-4">
+    <div className="flex h-full flex-col gap-3">
       <PerformanceTiles
         server={server}
         online={online.length}
         maxPlayers={maxPlayers}
         stats={stats}
       />
-      <Card
-        title="Performance"
-        actions={running ? <PerformanceLegend showTps={stats.tpsSupported} /> : undefined}
-      >
-        {running ? (
-          <PerformanceChart
-            points={stats.points}
-            allocatedMb={server.ramMb}
-            showTps={stats.tpsSupported}
-          />
-        ) : (
-          <p className="text-sm text-faint">Start the server to see performance</p>
-        )}
-      </Card>
-      <div className="grid gap-4 min-[1000px]:grid-cols-2">
-        <Card title="Status">
-          <dl className="grid grid-cols-2 gap-4">
-            <Stat label="State">{STATUS_LABEL[server.status]}</Stat>
-            <Stat label="Uptime">{uptime}</Stat>
-            <Stat label="Port">{server.port}</Stat>
-            <Stat label="Sharing">
-              {server.tunnel?.enabled ? 'Shared via playit' : 'Not shared'}
-            </Stat>
-          </dl>
-        </Card>
-
+      <div className="grid min-h-[272px] flex-1 gap-3 min-[1000px]:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <Card
-          title="Players"
-          description={
-            maxPlayers === null
-              ? `${online.length} online`
-              : `${online.length} / ${maxPlayers} online`
-          }
-          actions={<TextLink onClick={() => onSection('players')}>Manage players →</TextLink>}
+          className="flex min-h-0 flex-col"
+          title="Performance"
+          description="Last 60 minutes"
+          actions={running ? <PerformanceLegend showTps={stats.tpsSupported} /> : undefined}
         >
-          {online.length === 0 ? (
-            <p className="text-sm text-faint">No one online</p>
+          {running ? (
+            <div className="min-h-0 flex-1">
+              <PerformanceChart
+                points={stats.points}
+                allocatedMb={server.ramMb}
+                showTps={stats.tpsSupported}
+              />
+            </div>
           ) : (
-            <ul className="flex flex-wrap gap-2">
-              {online.slice(0, MAX_AVATARS).map((name) => (
-                <li
-                  key={name}
-                  className="flex items-center gap-2 rounded-btn border border-border-soft bg-sidebar py-1 pl-1 pr-3"
-                >
-                  <Avatar name={name} size={24} />
-                  <span className="text-sm text-text-2">{name}</span>
-                </li>
-              ))}
-              {online.length > MAX_AVATARS && (
-                <li className="self-center text-sm text-faint">
-                  +{online.length - MAX_AVATARS} more
-                </li>
-              )}
-            </ul>
+            <p className="text-sm text-faint">Start the server to see performance</p>
           )}
         </Card>
-
-        <Card
-          title="Console"
-          className="min-[1000px]:col-span-2"
-          actions={<TextLink onClick={() => onSection('console')}>Open console →</TextLink>}
-        >
-          <div className="rounded-btn border border-border-soft bg-console p-3 font-mono text-xs leading-5">
-            {tail.length === 0 ? (
-              <div className="text-faint">Server hasn&apos;t run yet</div>
-            ) : (
-              tail.map((text, i) => <LogLine key={i} text={text} {...parseLogLevel(text)} />)
-            )}
-          </div>
-        </Card>
-
-        {contentLabel && (
-          <Card
-            title={contentLabel}
-            actions={
-              <TextLink onClick={() => onSection('content')}>
-                Manage {contentLabel.toLowerCase()} →
-              </TextLink>
-            }
-          >
-            {contentFailed ? (
-              <p className="text-sm text-faint">
-                Couldn&apos;t read the {contentLabel.toLowerCase()} folder.
-              </p>
-            ) : content === null ? (
-              <p className="text-sm text-faint">Loading…</p>
-            ) : (
-              <dl className="grid grid-cols-2 gap-4">
-                <Stat label="Installed">{content.items.length}</Stat>
-                {!content.offline && <Stat label="Updates">{updates}</Stat>}
-              </dl>
-            )}
-          </Card>
-        )}
-
-        <Card
-          title="Connect"
-          className={contentLabel ? '' : 'min-[1000px]:col-span-2'}
-          actions={<TextLink onClick={() => onSection('connect')}>Connect settings →</TextLink>}
-        >
-          <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-btn border border-border-soft bg-sidebar px-3 py-2 font-mono text-sm text-text">
-              {address}
-            </code>
-            <Button onClick={() => copy(address)}>
-              <CopyIcon className="h-4 w-4" />
-              {copied ? 'Copied' : 'Copy'}
-            </Button>
-          </div>
-        </Card>
+        <WorldsCard
+          server={server}
+          className="min-h-0"
+          footer={<BackupNowButton serverId={server.id} />}
+        />
+      </div>
+      <div className="grid min-h-[180px] flex-[1.2] gap-3 min-[1000px]:grid-cols-2">
+        <OnlinePlayersCard server={server} />
+        <ConsolePanel server={server} />
       </div>
     </div>
   )

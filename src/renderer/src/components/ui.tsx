@@ -1,12 +1,15 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type ReactNode,
   type TdHTMLAttributes,
   type ThHTMLAttributes
 } from 'react'
+import { createPortal } from 'react-dom'
 import { SERVER_TYPE_LABELS, type ServerStatus, type ServerView } from '../../../shared/types'
 import { avatarColor, STATUS_DOT, STATUS_LABEL } from '../lib/format'
 
@@ -106,7 +109,7 @@ export function Card({
   return (
     <section className={`rounded-card border border-border bg-panel p-5 ${className}`}>
       {(title || actions) && (
-        <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
           <div className="min-w-0">
             {title && <h2 className="text-[15px] font-semibold text-text">{title}</h2>}
             {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
@@ -143,6 +146,7 @@ export const StatusBadge = StatusPill
 const BADGE_TONES = {
   neutral: 'border-border-strong bg-panel-2 text-text-2',
   accent: 'border-ok-border bg-ok-bg text-ok-text',
+  info: 'border-info-border bg-info-bg text-info',
   warn: 'border-warn-border bg-warn-bg text-warn',
   danger: 'border-bad-border bg-bad-bg text-danger'
 } as const
@@ -189,16 +193,20 @@ export function StatTile({
 }) {
   const width = Math.max(0, Math.min(100, bar))
   return (
-    <div className="rounded-card border border-border bg-panel p-4">
+    <div className="rounded-card border border-border bg-panel px-5 py-4">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-muted">{label}</span>
+        <span title={label} className="truncate whitespace-nowrap text-[13px] text-muted">
+          {label}
+        </span>
         {chip}
       </div>
-      <div className="mt-2 flex items-baseline gap-1.5">
-        <span className="font-mono text-2xl font-semibold text-text">{value}</span>
+      <div className="mt-3 flex items-baseline gap-2">
+        <span className="text-[30px] font-semibold leading-none tracking-tight text-text">
+          {value}
+        </span>
         {unit && <span className="text-sm text-muted">{unit}</span>}
       </div>
-      <div className="mt-3 h-1 overflow-hidden rounded-full bg-panel-2">
+      <div className="mt-4 h-1 overflow-hidden rounded-full bg-panel-2">
         <div
           className={`h-full rounded-full transition-[width] ${TILE_BARS[barTone]}`}
           style={{ width: `${width}%` }}
@@ -337,27 +345,56 @@ export function Menu({
   align?: 'left' | 'right'
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<CSSProperties | null>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (!buttonRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setOpen(false)
+      }
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false)
     }
+    // The menu is pinned to where the button was, so it would drift if anything scrolled.
+    const close = () => setOpen(false)
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
     return () => {
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
     }
   }, [open])
 
+  // Rendered into <body> with fixed coordinates so scrolling or overflow-clipped parents
+  // (tables, the sidebar) can't cut it off. Opens upwards when there's no room below.
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current || !menuRef.current) {
+      setPos(null)
+      return
+    }
+    const anchor = buttonRef.current.getBoundingClientRect()
+    const { offsetWidth: width, offsetHeight: height } = menuRef.current
+    const gap = 4
+    const margin = 8
+    const fitsBelow = anchor.bottom + gap + height <= window.innerHeight - margin
+    const top = fitsBelow ? anchor.bottom + gap : Math.max(margin, anchor.top - gap - height)
+    const left = align === 'right' ? anchor.right - width : anchor.left
+    setPos({ top, left: Math.min(Math.max(margin, left), window.innerWidth - margin - width) })
+  }, [open, align])
+
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={buttonRef}
         type="button"
         aria-label={label}
         aria-haspopup="menu"
@@ -367,47 +404,49 @@ export function Menu({
       >
         {button}
       </button>
-      {open && (
-        <div
-          role="menu"
-          className={`absolute z-20 mt-1 min-w-[220px] rounded-btn border border-border-strong bg-panel p-1 shadow-xl shadow-black/40 ${
-            align === 'right' ? 'right-0' : 'left-0'
-          }`}
-        >
-          {items.map((item, i) =>
-            item === 'divider' ? (
-              <div key={`divider-${i}`} role="separator" className="my-1 h-px bg-border-soft" />
-            ) : (
-              <button
-                key={`${i}-${item.label}`}
-                type="button"
-                role="menuitem"
-                disabled={item.disabled}
-                onClick={() => {
-                  setOpen(false)
-                  item.onSelect()
-                }}
-                className={`flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-panel-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent ${
-                  item.danger ? 'text-stop-text' : item.selected ? 'text-text' : 'text-text-2'
-                }`}
-              >
-                {item.icon && (
-                  <span className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">
-                    {item.icon}
-                  </span>
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{item.label}</span>
-                  {item.hint && (
-                    <span className="block truncate text-xs text-faint">{item.hint}</span>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            style={pos ?? { top: 0, left: 0, visibility: 'hidden' }}
+            className="fixed z-50 min-w-[220px] rounded-btn border border-border-strong bg-panel p-1 shadow-xl shadow-black/40"
+          >
+            {items.map((item, i) =>
+              item === 'divider' ? (
+                <div key={`divider-${i}`} role="separator" className="my-1 h-px bg-border-soft" />
+              ) : (
+                <button
+                  key={`${i}-${item.label}`}
+                  type="button"
+                  role="menuitem"
+                  disabled={item.disabled}
+                  onClick={() => {
+                    setOpen(false)
+                    item.onSelect()
+                  }}
+                  className={`flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-panel-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent ${
+                    item.danger ? 'text-stop-text' : item.selected ? 'text-text' : 'text-text-2'
+                  }`}
+                >
+                  {item.icon && (
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">
+                      {item.icon}
+                    </span>
                   )}
-                </span>
-              </button>
-            )
-          )}
-        </div>
-      )}
-    </div>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{item.label}</span>
+                    {item.hint && (
+                      <span className="block truncate text-xs text-faint">{item.hint}</span>
+                    )}
+                  </span>
+                </button>
+              )
+            )}
+          </div>,
+          document.body
+        )}
+    </>
   )
 }
 

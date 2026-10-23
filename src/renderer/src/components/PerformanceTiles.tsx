@@ -83,7 +83,13 @@ export function PerformanceTiles({ server, online, maxPlayers, stats }: Props) {
       label="Memory"
       value={mem === null ? '—' : formatGb(mem)}
       unit={ram}
-      chip={mem === null ? undefined : <Badge mono>{Math.round(memPct)}%</Badge>}
+      chip={
+        mem === null ? undefined : (
+          <Badge tone="info" mono>
+            {Math.round(memPct)}%
+          </Badge>
+        )
+      }
       bar={memPct}
       barTone="info"
     />
@@ -99,14 +105,20 @@ export function PerformanceTiles({ server, online, maxPlayers, stats }: Props) {
       label="CPU"
       value={cpu === null ? '—' : Math.round(cpu)}
       unit="%"
-      chip={stats.cores > 0 ? <Badge mono>{stats.cores} cores</Badge> : undefined}
+      chip={
+        stats.cores > 0 ? (
+          <Badge tone="warn" mono>
+            {stats.cores} cores
+          </Badge>
+        ) : undefined
+      }
       bar={cpu ?? 0}
       barTone="warn"
     />
   )
 
   return (
-    <div className="grid grid-cols-2 gap-4 min-[1000px]:grid-cols-4">
+    <div className="grid shrink-0 grid-cols-2 gap-3 min-[1000px]:grid-cols-4">
       {players}
       {tpsTile}
       {memTile}

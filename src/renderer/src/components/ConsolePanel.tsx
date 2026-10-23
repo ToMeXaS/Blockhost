@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
-import type { ServerView } from '../../../../shared/types'
-import { LogLine } from '../../components/LogLine'
-import { Button, ErrorText, Segmented } from '../../components/ui'
-import { api, errorMessage } from '../../lib/api'
-import { matchesFilter, parseLogLevel, type LogFilter, type ParsedLine } from '../../lib/logLevel'
+import type { ServerView } from '../../../shared/types'
+import { api, errorMessage } from '../lib/api'
+import { matchesFilter, parseLogLevel, type LogFilter, type ParsedLine } from '../lib/logLevel'
+import { LogLine } from './LogLine'
+import { Button } from './ui'
 
 interface Line extends ParsedLine {
   id: number
@@ -31,7 +31,14 @@ const FILTERS: { value: LogFilter; label: string }[] = [
   { value: 'chat', label: 'Chat' }
 ]
 
-export function ConsoleSection({ server }: { server: ServerView }) {
+/** The live console card: filter tabs, scrolling output and a command line. */
+export function ConsolePanel({
+  server,
+  className = ''
+}: {
+  server: ServerView
+  className?: string
+}) {
   const [lines, setLines] = useState<Line[]>([])
   const [filter, setFilter] = useState<LogFilter>('all')
   const [command, setCommand] = useState('')
@@ -85,9 +92,8 @@ export function ConsoleSection({ server }: { server: ServerView }) {
   function jumpToLatest() {
     const el = scrollRef.current
     if (!el) return
-    el.scrollTop = el.scrollHeight
-    stickToBottom.current = true
-    setAtBottom(true)
+    // onScroll re-enables sticking to the bottom once the animation arrives there.
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }
 
   const canSend = server.status === 'running' || server.status === 'starting'
@@ -136,17 +142,35 @@ export function ConsoleSection({ server }: { server: ServerView }) {
   const shown = filter === 'all' ? lines : lines.filter((l) => matchesFilter(l.level, filter))
 
   return (
-    <div className="flex h-full min-h-[320px] flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <Segmented label="Filter console" options={FILTERS} value={filter} onChange={setFilter} />
-        <span className="font-mono text-xs text-faint">{lines.length} lines</span>
+    <section
+      className={`flex min-h-0 flex-col overflow-hidden rounded-card border border-border bg-panel ${className}`}
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-border-soft px-5 py-3">
+        <h2 className="text-[15px] font-semibold text-text">Console</h2>
+        <div role="group" aria-label="Filter console" className="flex gap-1">
+          {FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              aria-pressed={f.value === filter}
+              onClick={() => setFilter(f.value)}
+              className={`rounded-btn border px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                f.value === filter
+                  ? 'border-border-strong bg-panel-2 text-text'
+                  : 'border-transparent text-muted hover:text-text'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 bg-console">
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="absolute inset-0 overflow-auto rounded-card border border-border bg-console p-4 font-mono text-[13px] leading-6"
+          className="absolute inset-0 overflow-auto px-5 py-3 font-mono text-[13px] leading-6"
         >
           {lines.length === 0 ? (
             <div className="text-faint">No output yet. Start the server to see its console.</div>
@@ -165,14 +189,18 @@ export function ConsoleSection({ server }: { server: ServerView }) {
         )}
       </div>
 
-      {error && <ErrorText>{error}</ErrorText>}
+      {error && (
+        <p className="border-t border-bad-border bg-bad-bg px-5 py-2 text-sm text-danger">
+          {error}
+        </p>
+      )}
 
-      <div className="flex items-center gap-2 rounded-btn border border-border-strong bg-sidebar pl-3 transition-colors focus-within:border-accent">
+      <div className="flex items-center gap-3 border-t border-border-soft py-2.5 pl-5 pr-3">
         <span className="font-mono text-sm text-accent">&gt;</span>
         <input
-          className="h-10 min-w-0 flex-1 bg-transparent font-mono text-[13px] text-text outline-none placeholder:text-faint disabled:opacity-50"
+          className="h-9 min-w-0 flex-1 bg-transparent font-mono text-[13px] text-text outline-none placeholder:text-faint disabled:opacity-50"
           placeholder={
-            canSend ? 'Type a command, e.g. op YourName' : 'Start the server to send commands'
+            canSend ? 'Type a command, e.g. say Hello' : 'Start the server to send commands'
           }
           aria-label="Console command"
           disabled={!canSend}
@@ -180,16 +208,10 @@ export function ConsoleSection({ server }: { server: ServerView }) {
           onChange={(e) => setCommand(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        <Button
-          variant="primary"
-          size="sm"
-          className="mr-1"
-          disabled={!canSend || !command.trim()}
-          onClick={() => void send()}
-        >
+        <Button disabled={!canSend || !command.trim()} onClick={() => void send()}>
           Send
         </Button>
       </div>
-    </div>
+    </section>
   )
 }

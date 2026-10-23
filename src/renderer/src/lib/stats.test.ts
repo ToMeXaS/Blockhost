@@ -45,24 +45,24 @@ describe('formatGb / memPercent', () => {
 })
 
 describe('downsample', () => {
-  it('maps points one-to-one when there are few', () => {
-    expect(downsample([p(1), p(2, { memBytes: null })], 1024)).toEqual([
-      { at: 1, cpu: 10, mem: 50, tps: 20 },
-      { at: 2, cpu: 10, mem: null, tps: 20 }
+  it('places points in time slots ending at `end`, leaving empty slots as gaps', () => {
+    // 4 slots of 10ms over the 40ms ending at 100: (60,70] (70,80] (80,90] (90,100]
+    expect(downsample([p(75), p(100, { memBytes: null })], 1024, 100, 4, 40)).toEqual([
+      { at: 70, cpu: null, mem: null, tps: null },
+      { at: 80, cpu: 10, mem: 50, tps: 20 },
+      { at: 90, cpu: null, mem: null, tps: null },
+      { at: 100, cpu: 10, mem: null, tps: 20 }
     ])
   })
 
-  it('averages buckets, skipping nulls', () => {
+  it('averages a slot, skipping nulls, and drops points outside the window', () => {
     const points = [
-      p(1, { cpu: 10 }),
-      p(2, { cpu: 30 }),
-      p(3, { cpu: null, tps: null }),
-      p(4, { cpu: null, tps: null })
+      p(50, { cpu: 90 }),
+      p(91, { cpu: 10 }),
+      p(95, { cpu: 30 }),
+      p(99, { cpu: null, tps: null })
     ]
-    expect(downsample(points, 1024, 2)).toEqual([
-      { at: 2, cpu: 20, mem: 50, tps: 20 },
-      { at: 4, cpu: null, mem: 50, tps: null }
-    ])
+    expect(downsample(points, 1024, 100, 1, 10)).toEqual([{ at: 100, cpu: 20, mem: 50, tps: 20 }])
   })
 })
 

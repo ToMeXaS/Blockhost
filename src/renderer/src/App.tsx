@@ -13,7 +13,7 @@ import { ServerPage } from './pages/ServerPage'
 type Route = { name: 'list' } | { name: 'new' } | { name: 'server'; id: string; section: Section }
 
 export default function App() {
-  const { servers, loaded, error, refresh, runningSince } = useServers()
+  const { servers, loaded, error, refresh } = useServers()
   const [route, setRoute] = useState<Route>({ name: 'list' })
   const [offline, setOffline] = useState(false)
   const lastSection = useRef(new Map<string, Section>())
@@ -79,8 +79,6 @@ export default function App() {
             server={current}
             section={route.section}
             online={online}
-            runningSince={runningSince[current.id]}
-            onSection={setSection}
             onChanged={() => void refresh()}
             onDeleted={() => {
               void refresh()
