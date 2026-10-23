@@ -254,3 +254,27 @@ export interface ContentInstallResult {
   installed: { title: string; versionNumber: string; asDependency: boolean }[]
   restartNeeded: boolean
 }
+
+/** One performance reading for a running server. `null` means "no reading". */
+export interface StatsPoint {
+  at: number
+  /** Percent of the whole machine's CPU, 0–100. */
+  cpu: number | null
+  /** Memory in use by the Java process (working set). */
+  memBytes: number | null
+  tps: number | null
+}
+
+export interface StatsSnapshot {
+  points: StatsPoint[]
+  allocatedMb: number
+  cores: number
+  tpsSupported: boolean
+  samplerAvailable: boolean
+}
+
+export interface StatsSampleEvent {
+  serverId: string
+  point: StatsPoint
+  samplerAvailable: boolean
+}
