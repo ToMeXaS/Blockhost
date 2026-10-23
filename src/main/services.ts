@@ -2,6 +2,8 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { EventChannel, EventPayloads } from '../shared/api'
 import type { ServerType } from '../shared/types'
+import { BackupScheduler } from './backups/scheduler'
+import { BackupService } from './backups/service'
 import { JsonCache } from './cache'
 import { folderBytes } from './disk/usage'
 import { createModrinthClient } from './content/modrinth'
@@ -23,6 +25,7 @@ import { ServerInstaller } from './servers/installer'
 import { defaultSpawn, killTree, ProcessManager } from './servers/process'
 import { ServerService } from './servers/service'
 import { ServerStore } from './servers/store'
+import { SettingsStore } from './settings'
 import { ProcessSampler } from './stats/sampler'
 import { StatsService } from './stats/service'
 import { PlayitAccount } from './tunnel/account'
@@ -45,6 +48,8 @@ export interface Services {
   tunnels: TunnelService
   content: ContentService
   stats: StatsService
+  backups: BackupService
+  backupScheduler: BackupScheduler
 }
 
 export async function createServices(opts: {
@@ -73,6 +78,8 @@ export async function createServices(opts: {
   })
   const store = new ServerStore(join(dataDir, 'servers.json'))
   await store.load()
+  const settings = new SettingsStore(join(dataDir, 'settings.json'))
+  await settings.load()
   const installer = new ServerInstaller({
     store,
     providers,
@@ -91,8 +98,12 @@ export async function createServices(opts: {
     onLog: (event) => {
       send('server:log', event)
       players.onLog(event)
+      backups.onLog(event)
     },
-    onQuietLine: (serverId, line) => stats.onQuietLine(serverId, line)
+    onQuietLine: (serverId, line) => {
+      stats.onQuietLine(serverId, line)
+      players.onQuietLine(serverId, line)
+    }
   })
   const players = new PlayerService({
     store,
@@ -143,6 +154,23 @@ export async function createServices(opts: {
     }),
     download: downloadFile
   })
+  const backups = new BackupService({
+    store,
+    processes,
+    settings,
+    defaultRoot: join(dataDir, 'backups'),
+    isPortFree: (port) => isPortFree(port),
+    emitProgress: (event) => send('backup:progress', event),
+    emitChanged: (event) => send('backups:changed', event)
+  })
+  await backups.recover()
+  const backupScheduler = new BackupScheduler({
+    servers: () => store.list(),
+    status: (id) => processes.status(id),
+    isBusy: (id) => backups.isBusy(id),
+    latestAutoAt: (id) => backups.latestAutoAt(id),
+    backup: (id) => backups.create(id, 'auto')
+  })
   const servers = new ServerService({
     store,
     installer,
@@ -152,7 +180,9 @@ export async function createServices(opts: {
     isPortFree: (port) => isPortFree(port),
     removeDir: (dir) => rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }),
     folderBytes,
-    onRemoved: (rec) => tunnels.onServerRemoved(rec)
+    onRemoved: (rec) => tunnels.onServerRemoved(rec),
+    isBackupBusy: (id) => backups.isBusy(id),
+    removeBackups: (id) => backups.deleteAll(id)
   })
   return {
     paths: { dataDir, serversDir },
@@ -165,6 +195,8 @@ export async function createServices(opts: {
     players,
     tunnels,
     content,
-    stats
+    stats,
+    backups,
+    backupScheduler
   }
 }

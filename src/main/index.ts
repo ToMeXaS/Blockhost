@@ -142,6 +142,7 @@ app.on('window-all-closed', () => app.quit())
 app.on('will-quit', () => {
   services?.tunnels.dispose()
   services?.stats.dispose()
+  services?.backupScheduler.dispose()
 })
 
 if (!app.requestSingleInstanceLock()) {
@@ -185,6 +186,7 @@ if (!app.requestSingleInstanceLock()) {
     })
     createWindow()
     updates.start()
+    services.backupScheduler.start()
     // Timers stall while the machine sleeps, so check as soon as it wakes.
     powerMonitor.on('resume', () => updates?.check())
   })

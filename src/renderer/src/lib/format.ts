@@ -1,4 +1,10 @@
-import type { ServerStatus, ServerType, ServerView } from '../../../shared/types'
+import type {
+  BackupList,
+  ServerStatus,
+  ServerType,
+  ServerView,
+  WorldDimension
+} from '../../../shared/types'
 
 export const STATUS_LABEL: Record<ServerStatus, string> = {
   stopped: 'Stopped',
@@ -73,6 +79,33 @@ export function formatUptime(ms: number): string {
   return `${seconds}s`
 }
 
+/** How long a player has been online: "<1m", "48m", "2h 41m", "1d 3h". */
+export function formatSession(ms: number): string {
+  const minutes = Math.floor(Math.max(0, ms) / 60_000)
+  if (minutes < 1) return '<1m'
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`
+}
+
+export const DIMENSION_LABEL: Record<WorldDimension, string> = {
+  overworld: 'Overworld',
+  nether: 'Nether',
+  end: 'The End'
+}
+
+const DIMENSION_IDS: Record<string, WorldDimension> = {
+  'minecraft:overworld': 'overworld',
+  'minecraft:the_nether': 'nether',
+  'minecraft:the_end': 'end'
+}
+
+/** The vanilla dimension a dimension id refers to; null for modded dimensions. */
+export function dimensionOf(id: string | undefined): WorldDimension | null {
+  return (id && DIMENSION_IDS[id]) || null
+}
+
 export const AVATAR_COLORS = [
   '#6FA8F5',
   '#F2B84B',
@@ -98,4 +131,40 @@ export function serverAddress(server: Pick<ServerView, 'port' | 'tunnel'>): stri
 export function javaLabel(javaPath?: string): string {
   if (!javaPath) return 'Java auto'
   return javaPath.split(/[\\/]/).pop() || javaPath
+}
+
+/** "just now", "5 min ago", "3 h ago", "2 days ago". */
+export function formatAgo(ms: number): string {
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  const days = Math.floor(hours / 24)
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`
+}
+
+const HOUR_MS = 3_600_000
+
+/** The sidebar's one-line backup status: the next automatic one, else the last one. */
+export function backupHint(
+  list: BackupList,
+  intervalHours: number | null,
+  running: boolean,
+  nowMs: number
+): { text: string; warn: boolean } {
+  if (list.lastAutoFailure) return { text: 'Last automatic backup failed', warn: true }
+  if (intervalHours && running) {
+    const lastAuto = list.items.find((b) => b.kind === 'auto')
+    const dueIn = lastAuto ? Date.parse(lastAuto.createdAt) + intervalHours * HOUR_MS - nowMs : 0
+    return {
+      text: dueIn < 60_000 ? 'Next backup soon' : `Next backup in ${formatSession(dueIn)}`,
+      warn: false
+    }
+  }
+  const last = list.items[0]
+  return {
+    text: last ? `Last backup ${formatAgo(nowMs - Date.parse(last.createdAt))}` : 'No backups yet',
+    warn: false
+  }
 }

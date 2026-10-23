@@ -1,7 +1,7 @@
 import { CONTENT_LABELS, type ServerType } from '../../../shared/types'
 
 export type Section =
-  'overview' | 'console' | 'players' | 'content' | 'properties' | 'connect' | 'settings'
+  'overview' | 'console' | 'players' | 'content' | 'properties' | 'backups' | 'connect' | 'settings'
 
 export interface SectionInfo {
   id: Section
@@ -14,15 +14,17 @@ const ORDER: Section[] = [
   'players',
   'content',
   'properties',
+  'backups',
   'connect',
   'settings'
 ]
 
 const LABELS: Record<Exclude<Section, 'content'>, string> = {
-  overview: 'Overview',
+  overview: 'Dashboard',
   console: 'Console',
   players: 'Players',
   properties: 'Properties',
+  backups: 'Backups',
   connect: 'Connect',
   settings: 'Settings'
 }
@@ -36,7 +38,7 @@ export function sectionsFor(type: ServerType): SectionInfo[] {
   })
 }
 
-/** The remembered section if this server type has it, otherwise Overview. */
+/** The remembered section if this server type has it, otherwise Dashboard. */
 export function resolveSection(type: ServerType, remembered?: Section): Section {
   if (!remembered) return 'overview'
   return sectionsFor(type).some((s) => s.id === remembered) ? remembered : 'overview'

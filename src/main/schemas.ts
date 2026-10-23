@@ -1,7 +1,8 @@
 import { isAbsolute } from 'node:path'
 import { isIP } from 'node:net'
 import { z } from 'zod'
-import { PLAYER_NAME_PATTERN, SERVER_TYPES } from '../shared/types'
+import { BACKUP_INTERVALS, PLAYER_NAME_PATTERN, SERVER_TYPES } from '../shared/types'
+import { isBackupFileName } from './backups/store'
 import { safeFileName } from './content/service'
 import { JAVA_MAJORS } from './java/requirements'
 
@@ -12,10 +13,21 @@ export const versionSchema = z
   .min(1)
   .max(64)
   .regex(/^[\w.+-]+$/)
+export const buildSchema = z
+  .string()
+  .max(32)
+  .regex(/^[\w.-]+$/)
 export const portSchema = z.number().int().min(1).max(65535)
 export const ramSchema = z.number().int().min(512).max(65536)
 /** Whole GB, 1 GB to 10 TB, stored in MB like RAM. */
 export const diskLimitSchema = z.number().int().min(1024).max(10_485_760).multipleOf(1024)
+export const backupSettingsSchema = z.strictObject({
+  intervalHours: z
+    .number()
+    .refine((h) => (BACKUP_INTERVALS as readonly number[]).includes(h), 'Unsupported interval')
+    .nullable(),
+  keep: z.number().int().min(1).max(100)
+})
 const RESERVED_DEVICE_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i
 
 export const nameSchema = z
@@ -28,26 +40,24 @@ export const nameSchema = z
   .refine((name) => !/[. ]$/.test(name), 'The name cannot end with a dot or space')
   .refine((name) => !RESERVED_DEVICE_NAMES.test(name), 'This name is reserved by Windows')
 
+export const dirSchema = z
+  .string()
+  .min(3)
+  .max(240)
+  .refine((p) => isAbsolute(p), 'Folder must be an absolute path')
+
 export const createServerSchema = z.object({
   name: nameSchema,
   type: serverTypeSchema,
   mcVersion: versionSchema,
-  build: z
-    .string()
-    .max(32)
-    .regex(/^[\w.-]+$/)
-    .optional(),
-  dir: z
-    .string()
-    .min(3)
-    .max(240)
-    .refine((p) => isAbsolute(p), 'Folder must be an absolute path'),
+  build: buildSchema.optional(),
+  dir: dirSchema,
   ramMb: ramSchema,
   port: portSchema,
   eulaAccepted: z.literal(true)
 })
 
-const jvmArgSchema = z
+export const jvmArgSchema = z
   .string()
   .max(200)
   .regex(/^-\S+$/, 'JVM arguments must start with "-"')
@@ -63,7 +73,8 @@ export const serverPatchSchema = z.strictObject({
   diskLimitMb: diskLimitSchema.nullable().optional(),
   port: portSchema.optional(),
   javaPath: z.string().max(400).nullable().optional(),
-  jvmArgs: z.array(jvmArgSchema).max(50).optional()
+  jvmArgs: z.array(jvmArgSchema).max(50).optional(),
+  backup: backupSettingsSchema.optional()
 })
 
 export const propertyEntriesSchema = z
@@ -150,3 +161,14 @@ export const contentFileSchema = z
       return false
     }
   }, 'Not a safe .jar file name')
+
+export const backupFileSchema = z
+  .string()
+  .max(210)
+  .refine((name) => isBackupFileName(name), 'Not a backup file name')
+
+export const restoreAsNewSchema = z.strictObject({
+  name: nameSchema,
+  dir: dirSchema,
+  port: portSchema
+})

@@ -1,4 +1,5 @@
 import { dialog, ipcMain, shell, type BrowserWindow, type OpenDialogOptions } from 'electron'
+import { mkdir } from 'node:fs/promises'
 import { totalmem } from 'node:os'
 import { z } from 'zod'
 import type { InvokeChannel } from '../shared/api'
@@ -8,6 +9,7 @@ import { AppError, toApiError } from './errors'
 import { lanIps, publicIp } from './net/ip'
 import { isPortFree } from './net/port'
 import {
+  backupFileSchema,
   commandSchema,
   contentFileSchema,
   contentOffsetSchema,
@@ -20,11 +22,13 @@ import {
   portSchema,
   projectRefSchema,
   propertyEntriesSchema,
+  restoreAsNewSchema,
   serverPatchSchema,
   serverTypeSchema,
   versionSchema
 } from './schemas'
 import type { Services } from './services'
+import { scanWorlds } from './worlds/scan'
 
 function handle<A extends unknown[]>(
   channel: InvokeChannel,
@@ -56,7 +60,8 @@ export function registerIpc(
     players,
     tunnels,
     content,
-    stats
+    stats,
+    backups
   } = services
 
   const openDialog = async (options: OpenDialogOptions): Promise<string | null> => {
@@ -82,8 +87,10 @@ export function registerIpc(
   handle('servers:update', z.tuple([idSchema, serverPatchSchema]), (id, patch) =>
     servers.update(id, patch)
   )
-  handle('servers:remove', z.tuple([idSchema, z.boolean()]), (id, keepFiles) =>
-    servers.remove(id, keepFiles)
+  handle(
+    'servers:remove',
+    z.tuple([idSchema, z.boolean(), z.boolean()]),
+    (id, keepFiles, deleteBackups) => servers.remove(id, keepFiles, deleteBackups)
   )
   handle('servers:start', z.tuple([idSchema]), (id) => servers.start(id))
   handle('servers:stop', z.tuple([idSchema]), (id) => servers.stop(id))
@@ -108,7 +115,45 @@ export function registerIpc(
     players.action(id, action)
   )
   handle('stats:get', z.tuple([idSchema]), (id) => stats.snapshot(id))
-  handle('disk:get', z.tuple([idSchema]), (id) => diskUsage(servers.dir(id)))
+  handle('disk:get', z.tuple([idSchema]), async (id) => ({
+    ...(await diskUsage(servers.dir(id))),
+    backupsBytes: await backups.bytes(id)
+  }))
+  handle('worlds:get', z.tuple([idSchema]), (id) => scanWorlds(servers.dir(id)))
+  handle('backups:list', z.tuple([idSchema]), (id) => backups.list(id))
+  handle('backups:create', z.tuple([idSchema]), (id) => backups.create(id, 'manual'))
+  handle('backups:restore', z.tuple([idSchema, backupFileSchema]), (id, file) =>
+    backups.restore(id, file)
+  )
+  handle(
+    'backups:restoreAsNew',
+    z.tuple([idSchema, backupFileSchema, restoreAsNewSchema]),
+    (id, file, input) => backups.restoreAsNew(id, file, input)
+  )
+  handle('backups:delete', z.tuple([idSchema, backupFileSchema]), (id, file) =>
+    backups.delete(id, file)
+  )
+  handle('backups:reveal', z.tuple([idSchema, backupFileSchema]), async (id, file) => {
+    shell.showItemInFolder(await backups.filePath(id, file))
+  })
+  handle('backups:openFolder', z.tuple([idSchema]), async (id) => {
+    const dir = backups.dirFor(id)
+    await mkdir(dir, { recursive: true })
+    const error = await shell.openPath(dir)
+    if (error) throw new AppError('OPEN_FAILED', error)
+  })
+  handle('backups:meta', z.tuple([idSchema, backupFileSchema]), (id, file) =>
+    backups.meta(id, file)
+  )
+  handle('backups:location', z.tuple([]), () => backups.location())
+  handle('backups:pickLocation', z.tuple([]), async () => {
+    const dir = await openDialog({
+      title: 'Choose a folder for backups',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    return dir ? backups.setLocation(dir) : backups.location()
+  })
+  handle('backups:resetLocation', z.tuple([]), () => backups.setLocation(null))
 
   handle('tunnel:account', z.tuple([]), () => tunnels.account())
   handle('tunnel:link', z.tuple([]), () => tunnels.link())

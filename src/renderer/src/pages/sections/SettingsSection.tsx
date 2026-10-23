@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { ServerView, SystemInfo } from '../../../../shared/types'
-import { Button, Card, ErrorText, Field, inputClass, Notice } from '../../components/ui'
+import type { BackupList, ServerView, SystemInfo } from '../../../../shared/types'
+import { useToast } from '../../components/Toaster'
+import { Button, Card, Field, inputClass } from '../../components/ui'
 import { api, errorMessage } from '../../lib/api'
-import { formatRam, maxRamMb } from '../../lib/format'
+import { formatBytes, formatRam, maxRamMb } from '../../lib/format'
 
 interface Props {
   server: ServerView
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function SettingsSection({ server, onChanged, onDeleted }: Props) {
+  const toast = useToast()
   const [sys, setSys] = useState<SystemInfo | null>(null)
   const [ramMb, setRamMb] = useState(server.ramMb)
   const [limitOn, setLimitOn] = useState(server.diskLimitMb !== undefined)
@@ -18,11 +20,10 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
   const [jvmArgs, setJvmArgs] = useState(server.jvmArgs.join(' '))
   const [javaPath, setJavaPath] = useState<string | undefined>(server.javaPath)
   const [saving, setSaving] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [warning, setWarning] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [keepFiles, setKeepFiles] = useState(true)
+  const [backups, setBackups] = useState<BackupList | null>(null)
+  const [deleteBackups, setDeleteBackups] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
@@ -45,9 +46,6 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
 
   async function save() {
     setSaving(true)
-    setError(null)
-    setNotice(null)
-    setWarning(null)
     try {
       const result = await api.updateServer(server.id, {
         ramMb,
@@ -55,11 +53,11 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
         jvmArgs: jvmArgs.split(/\s+/).filter(Boolean),
         javaPath: javaPath ?? null
       })
-      setWarning(result.warning ?? null)
-      setNotice(stopped ? 'Saved.' : 'Saved. Changes apply the next time the server starts.')
+      toast.success(stopped ? 'Saved.' : 'Saved. Changes apply the next time the server starts.')
+      if (result.warning) toast.warn(result.warning)
       onChanged()
     } catch (err) {
-      setError(errorMessage(err))
+      toast.error(errorMessage(err))
     } finally {
       setSaving(false)
     }
@@ -72,12 +70,15 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
 
   async function remove() {
     setDeleting(true)
-    setError(null)
     try {
-      await api.removeServer(server.id, keepFiles)
+      await api.removeServer(
+        server.id,
+        keepFiles,
+        deleteBackups && backups !== null && backups.items.length > 0
+      )
       onDeleted()
     } catch (err) {
-      setError(errorMessage(err))
+      toast.error(errorMessage(err))
       setDeleting(false)
     }
   }
@@ -90,7 +91,7 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
           <Button
             variant="secondary"
             onClick={() =>
-              void api.openFolder(server.id).catch((err) => setError(errorMessage(err)))
+              void api.openFolder(server.id).catch((err) => toast.error(errorMessage(err)))
             }
           >
             Open server folder
@@ -176,10 +177,6 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
             />
           </Field>
 
-          {warning && <Notice tone="warn">{warning}</Notice>}
-          {error && <ErrorText>{error}</ErrorText>}
-          {notice && <Notice tone="ok">{notice}</Notice>}
-
           <div className="flex justify-end">
             <Button
               variant="primary"
@@ -195,7 +192,19 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
       <section className="rounded-card border border-bad-border bg-bad-bg/40 p-5 space-y-3">
         <h3 className="text-[15px] font-semibold text-danger">Delete server</h3>
         {!confirmDelete ? (
-          <Button variant="danger" disabled={!stopped} onClick={() => setConfirmDelete(true)}>
+          <Button
+            variant="danger"
+            disabled={!stopped}
+            onClick={() => {
+              setConfirmDelete(true)
+              setDeleteBackups(false)
+              setBackups(null)
+              api
+                .backupsList(server.id)
+                .then(setBackups)
+                .catch(() => setBackups(null))
+            }}
+          >
             Delete…
           </Button>
         ) : (
@@ -209,11 +218,31 @@ export function SettingsSection({ server, onChanged, onDeleted }: Props) {
               />
               Keep the world and files on disk ({server.dir})
             </label>
+            {backups && backups.items.length > 0 && (
+              <label className="flex items-center gap-2 text-sm text-text-2">
+                <input
+                  type="checkbox"
+                  className="accent-accent"
+                  checked={deleteBackups}
+                  onChange={(e) => setDeleteBackups(e.target.checked)}
+                />
+                Also delete {backups.items.length}{' '}
+                {backups.items.length === 1 ? 'backup' : 'backups'} (
+                {formatBytes(backups.items.reduce((sum, b) => sum + b.bytes, 0))})
+              </label>
+            )}
             <div className="flex gap-2">
               <Button variant="danger" disabled={deleting} onClick={() => void remove()}>
                 {keepFiles ? 'Remove from Blockhost' : 'Delete server and files'}
               </Button>
-              <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  setConfirmDelete(false)
+                  setDeleteBackups(false)
+                }}
+              >
+                Cancel
+              </Button>
             </div>
           </div>
         )}

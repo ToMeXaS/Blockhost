@@ -8,6 +8,7 @@ describe('sectionsFor', () => {
       'console',
       'players',
       'properties',
+      'backups',
       'connect',
       'settings'
     ])
@@ -20,11 +21,12 @@ describe('sectionsFor', () => {
 
   it('keeps the sidebar order', () => {
     expect(sectionsFor('neoforge').map((s) => s.label)).toEqual([
-      'Overview',
+      'Dashboard',
       'Console',
       'Players',
       'Mods',
       'Properties',
+      'Backups',
       'Connect',
       'Settings'
     ])

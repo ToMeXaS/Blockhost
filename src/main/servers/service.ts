@@ -29,6 +29,10 @@ export interface ServerServiceDeps {
   folderBytes: (dir: string) => Promise<number>
   /** Called after a server has been removed from the store. */
   onRemoved?: (rec: ServerRecord) => void
+  /** True while a backup or restore holds the server. */
+  isBackupBusy?: (id: string) => boolean
+  /** Deletes the server's backups; used when the user ticks the box on delete. */
+  removeBackups?: (id: string) => Promise<void>
 }
 
 export class ServerService {
@@ -106,23 +110,26 @@ export class ServerService {
       ...(patch.ramMb !== undefined ? { ramMb: patch.ramMb } : {}),
       ...(patch.port !== undefined ? { port: patch.port } : {}),
       ...(patch.jvmArgs !== undefined ? { jvmArgs: patch.jvmArgs } : {}),
+      ...(patch.backup !== undefined ? { backup: patch.backup } : {}),
       javaPath,
       diskLimitMb
     })
     return { server: this.view(updated), ...(warning ? { warning } : {}) }
   }
 
-  async remove(id: string, keepFiles: boolean): Promise<void> {
+  async remove(id: string, keepFiles: boolean, deleteBackups = false): Promise<void> {
     if (this.deps.processes.isActive(id)) {
       throw new AppError('SERVER_RUNNING', 'Stop the server before deleting it')
     }
     if (this.deps.installer.isInstalling(id)) {
       throw new AppError('INSTALLING', 'Wait for the installation to finish before deleting')
     }
+    this.assertNotBackingUp(id)
     const rec = this.deps.store.get(id)
     await this.deps.store.remove(id)
     this.deps.onRemoved?.(rec)
     if (!keepFiles) await this.deps.removeDir(rec.dir)
+    if (deleteBackups) await this.deps.removeBackups?.(id)
   }
 
   async start(id: string): Promise<void> {
@@ -130,6 +137,7 @@ export class ServerService {
     if (rec.installState !== 'ready' || !rec.launch) {
       throw new AppError('NOT_INSTALLED', 'This server has not finished installing')
     }
+    this.assertNotBackingUp(id)
     if (this.deps.processes.isActive(id)) {
       throw new AppError('ALREADY_RUNNING', 'The server is already running')
     }
@@ -155,10 +163,12 @@ export class ServerService {
   }
 
   stop(id: string): void {
+    this.assertNotBackingUp(id)
     this.deps.processes.stop(id)
   }
 
   async restart(id: string): Promise<void> {
+    this.assertNotBackingUp(id)
     if (this.deps.processes.isActive(id)) {
       this.deps.processes.stop(id)
       const stopped = await this.deps.processes.waitForExit(id, RESTART_STOP_TIMEOUT_MS)
@@ -185,6 +195,12 @@ export class ServerService {
     const portValue = entries.find((e) => e.key === 'server-port')?.value
     const port = portValue && /^\d+$/.test(portValue) ? Number(portValue) : NaN
     if (port >= 1 && port <= 65535 && port !== rec.port) await this.deps.store.update(id, { port })
+  }
+
+  private assertNotBackingUp(id: string): void {
+    if (this.deps.isBackupBusy?.(id)) {
+      throw new AppError('BACKUP_BUSY', 'Wait for the backup or restore to finish')
+    }
   }
 
   private view(rec: ServerRecord): ServerView {

@@ -1,4 +1,6 @@
 import type {
+  BackupProgress,
+  BackupsChangedEvent,
   InstallProgress,
   PlayersChangedEvent,
   Result,
@@ -31,6 +33,18 @@ export const INVOKE_CHANNELS = [
   'players:action',
   'stats:get',
   'disk:get',
+  'worlds:get',
+  'backups:list',
+  'backups:create',
+  'backups:restore',
+  'backups:restoreAsNew',
+  'backups:delete',
+  'backups:reveal',
+  'backups:openFolder',
+  'backups:meta',
+  'backups:location',
+  'backups:pickLocation',
+  'backups:resetLocation',
   'tunnel:account',
   'tunnel:link',
   'tunnel:cancelLink',
@@ -60,6 +74,8 @@ export const EVENT_CHANNELS = [
   'server:log',
   'players:changed',
   'stats:sample',
+  'backup:progress',
+  'backups:changed',
   'tunnel:status',
   'install:progress',
   'net:offline',
@@ -72,6 +88,8 @@ export interface EventPayloads {
   'server:log': ServerLogEvent
   'players:changed': PlayersChangedEvent
   'stats:sample': StatsSampleEvent
+  'backup:progress': BackupProgress
+  'backups:changed': BackupsChangedEvent
   'tunnel:status': TunnelStatus
   'install:progress': InstallProgress
   'net:offline': { url: string }

@@ -1,6 +1,10 @@
 import type { Bridge, EventChannel, EventPayloads, InvokeChannel } from '../../../shared/api'
 import type {
   ApiError,
+  BackupInfo,
+  BackupList,
+  BackupLocation,
+  BackupMeta,
   ContentInstallResult,
   ContentSearchResult,
   CreateServerInput,
@@ -11,6 +15,8 @@ import type {
   PlayerLists,
   PlayitAccountStatus,
   PropertyEntry,
+  RestoreAsNewInput,
+  ServerRecord,
   ServerPatch,
   ServerType,
   ServerView,
@@ -19,7 +25,8 @@ import type {
   TunnelStatus,
   UpdateResult,
   UpdateStatus,
-  VersionInfo
+  VersionInfo,
+  WorldInfo
 } from '../../../shared/types'
 
 export class ApiCallError extends Error {
@@ -51,7 +58,8 @@ export const api = {
   createServer: (input: CreateServerInput) => call<ServerView>('servers:create', input),
   retryInstall: (id: string) => call<ServerView>('servers:retryInstall', id),
   updateServer: (id: string, patch: ServerPatch) => call<UpdateResult>('servers:update', id, patch),
-  removeServer: (id: string, keepFiles: boolean) => call<void>('servers:remove', id, keepFiles),
+  removeServer: (id: string, keepFiles: boolean, deleteBackups = false) =>
+    call<void>('servers:remove', id, keepFiles, deleteBackups),
   start: (id: string) => call<void>('servers:start', id),
   stop: (id: string) => call<void>('servers:stop', id),
   restart: (id: string) => call<void>('servers:restart', id),
@@ -68,6 +76,19 @@ export const api = {
     call<PlayerLists>('players:action', id, action),
   statsGet: (id: string) => call<StatsSnapshot>('stats:get', id),
   diskGet: (id: string) => call<DiskUsage>('disk:get', id),
+  worldsGet: (id: string) => call<WorldInfo[]>('worlds:get', id),
+  backupsList: (id: string) => call<BackupList>('backups:list', id),
+  backupsCreate: (id: string) => call<BackupInfo>('backups:create', id),
+  backupsRestore: (id: string, file: string) => call<void>('backups:restore', id, file),
+  backupsRestoreAsNew: (id: string, file: string, input: RestoreAsNewInput) =>
+    call<ServerRecord>('backups:restoreAsNew', id, file, input),
+  backupsDelete: (id: string, file: string) => call<void>('backups:delete', id, file),
+  backupsReveal: (id: string, file: string) => call<void>('backups:reveal', id, file),
+  backupsOpenFolder: (id: string) => call<void>('backups:openFolder', id),
+  backupsMeta: (id: string, file: string) => call<BackupMeta | null>('backups:meta', id, file),
+  backupsLocation: () => call<BackupLocation>('backups:location'),
+  backupsPickLocation: () => call<BackupLocation>('backups:pickLocation'),
+  backupsResetLocation: () => call<BackupLocation>('backups:resetLocation'),
 
   tunnelAccount: () => call<PlayitAccountStatus>('tunnel:account'),
   tunnelLink: () => call<void>('tunnel:link'),

@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { SERVER_TYPE_LABELS, type ServerView } from '../../../shared/types'
+import { ConsolePanel } from '../components/ConsolePanel'
 import { InstallPanel } from '../components/InstallPanel'
-import { CopyIcon, MoreIcon } from '../components/icons'
+import { MoreIcon, PowerIcon, RestartIcon } from '../components/icons'
+import { useToast } from '../components/Toaster'
 import { Badge, Button, ErrorText, Menu, pageClass, StatusPill } from '../components/ui'
 import { useCopy } from '../hooks/useCopy'
 import { api, ApiCallError, errorMessage } from '../lib/api'
 import { formatRam, javaLabel, serverAddress } from '../lib/format'
 import type { Section } from '../lib/routes'
+import { BackupsSection } from './sections/BackupsSection'
 import { ConnectSection } from './sections/ConnectSection'
-import { ConsoleSection } from './sections/ConsoleSection'
 import { ContentSection } from './sections/ContentSection'
 import { OverviewSection } from './sections/OverviewSection'
 import { PlayersSection } from './sections/PlayersSection'
@@ -21,14 +23,13 @@ interface Props {
   server: ServerView
   section: Section
   online: string[]
-  runningSince?: number
-  onSection: (section: Section) => void
   onChanged: () => void
   onDeleted: () => void
 }
 
 export function ServerPage(props: Props) {
-  const { server, section, online, runningSince, onSection, onChanged, onDeleted } = props
+  const { server, section, online, onChanged, onDeleted } = props
+  const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [missingJava, setMissingJava] = useState<number | null>(null)
@@ -51,8 +52,13 @@ export function ServerPage(props: Props) {
     } catch (err) {
       const major =
         err instanceof ApiCallError && err.code === 'JAVA_MISSING' ? err.details?.major : undefined
-      if (typeof major === 'number') setMissingJava(major)
-      setError(errorMessage(err))
+      // Missing Java stays inline next to its Install button; everything else is a toast.
+      if (typeof major === 'number') {
+        setMissingJava(major)
+        setError(errorMessage(err))
+      } else {
+        toast.error(errorMessage(err))
+      }
     } finally {
       setBusy(false)
     }
@@ -62,6 +68,8 @@ export function ServerPage(props: Props) {
   const up = server.status === 'starting' || server.status === 'running'
   const address = serverAddress(server)
   const isConsole = ready && section === 'console'
+  /** Sections that size themselves to the window instead of scrolling the page. */
+  const fills = ready && (section === 'console' || section === 'overview')
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -80,24 +88,20 @@ export function ServerPage(props: Props) {
                 </Badge>
               )}
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[13px] text-muted">
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
               <button
                 type="button"
                 title="Copy address"
                 onClick={() => copy(address)}
-                className="inline-flex items-center gap-1.5 text-text-2 transition-colors hover:text-text"
+                className="font-mono text-text transition-colors hover:text-accent"
               >
-                <CopyIcon className="h-3.5 w-3.5" />
                 {copied ? 'Copied' : address}
               </button>
-              <span className="text-faint">·</span>
               <span>
                 {SERVER_TYPE_LABELS[server.type]} {server.mcVersion}
               </span>
-              <span className="text-faint">·</span>
               <span>{javaLabel(server.javaPath)}</span>
-              <span className="text-faint">·</span>
-              <span>{formatRam(server.ramMb)}</span>
+              <span>{formatRam(server.ramMb)} allocated</span>
             </div>
           </div>
 
@@ -109,7 +113,8 @@ export function ServerPage(props: Props) {
                   disabled={busy}
                   onClick={() => void run(() => api.start(server.id))}
                 >
-                  Start
+                  <PowerIcon className="h-4 w-4" />
+                  Start server
                 </Button>
               )}
               {up && (
@@ -118,6 +123,7 @@ export function ServerPage(props: Props) {
                     disabled={busy || server.status !== 'running'}
                     onClick={() => void run(() => api.restart(server.id))}
                   >
+                    <RestartIcon className="h-4 w-4" />
                     Restart
                   </Button>
                   <Button
@@ -125,7 +131,8 @@ export function ServerPage(props: Props) {
                     disabled={busy}
                     onClick={() => void run(() => api.stop(server.id))}
                   >
-                    Stop
+                    <PowerIcon className="h-4 w-4" />
+                    Stop server
                   </Button>
                 </>
               )}
@@ -175,7 +182,7 @@ export function ServerPage(props: Props) {
       </div>
 
       <div className={`min-h-0 flex-1 ${isConsole ? 'overflow-hidden' : 'overflow-auto'}`}>
-        <div className={`${pageClass} pt-6 ${isConsole ? 'h-full' : ''}`}>
+        <div className={`${pageClass} pt-6 ${fills ? 'h-full pb-5' : ''}`}>
           {!ready ? (
             <InstallPanel
               key={server.installState}
@@ -214,15 +221,8 @@ export function ServerPage(props: Props) {
             />
           ) : (
             <>
-              {section === 'overview' && (
-                <OverviewSection
-                  server={server}
-                  online={online}
-                  runningSince={runningSince}
-                  onSection={onSection}
-                />
-              )}
-              {section === 'console' && <ConsoleSection server={server} />}
+              {section === 'overview' && <OverviewSection server={server} online={online} />}
+              {section === 'console' && <ConsolePanel server={server} className="h-full" />}
               {section === 'players' && <PlayersSection server={server} />}
               {section === 'content' && <ContentSection server={server} />}
               {section === 'properties' && (
@@ -231,6 +231,7 @@ export function ServerPage(props: Props) {
               {section === 'settings' && (
                 <SettingsSection server={server} onChanged={onChanged} onDeleted={onDeleted} />
               )}
+              {section === 'backups' && <BackupsSection server={server} onChanged={onChanged} />}
               {section === 'connect' && <ConnectSection server={server} onChanged={onChanged} />}
             </>
           )}

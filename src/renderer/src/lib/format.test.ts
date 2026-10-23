@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import type { BackupKind } from '../../../shared/types'
 import {
   AVATAR_COLORS,
   avatarColor,
+  backupHint,
   fillLevel,
+  formatAgo,
   formatBytes,
+  formatSession,
   formatUptime,
   javaLabel,
   serverAddress
@@ -79,5 +83,75 @@ describe('fillLevel', () => {
     [1.2, 'over']
   ] as const)('%d → %s', (ratio, expected) => {
     expect(fillLevel(ratio)).toBe(expected)
+  })
+})
+
+describe('formatSession', () => {
+  it.each([
+    [0, '<1m'],
+    [59_000, '<1m'],
+    [48 * 60_000, '48m'],
+    [(2 * 60 + 41) * 60_000, '2h 41m'],
+    [65 * 60_000, '1h 05m'],
+    [27 * 3_600_000, '1d 3h']
+  ])('formats %i ms as %s', (ms, expected) => {
+    expect(formatSession(ms)).toBe(expected)
+  })
+})
+
+describe('formatAgo', () => {
+  const MIN = 60_000
+  it('reads naturally at each scale', () => {
+    expect(formatAgo(10_000)).toBe('just now')
+    expect(formatAgo(5 * MIN)).toBe('5 min ago')
+    expect(formatAgo(3 * 60 * MIN)).toBe('3 h ago')
+    expect(formatAgo(24 * 60 * MIN)).toBe('1 day ago')
+    expect(formatAgo(3 * 24 * 60 * MIN)).toBe('3 days ago')
+  })
+})
+
+describe('backupHint', () => {
+  const HOUR = 3_600_000
+  const now = Date.parse('2026-10-24T12:00:00Z')
+  const at = (ms: number) => new Date(now - ms).toISOString()
+  const item = (kind: BackupKind, ago: number) => ({
+    file: `${kind}-${ago}.zip`,
+    kind,
+    createdAt: at(ago),
+    bytes: 1
+  })
+  const list = (items: ReturnType<typeof item>[]) => ({ items, lastAutoFailure: null })
+
+  it('counts down to the next automatic backup while running', () => {
+    const hint = backupHint(list([item('auto', HOUR + 46 * 60_000)]), 3, true, now)
+    expect(hint).toEqual({ text: 'Next backup in 1h 14m', warn: false })
+  })
+
+  it('ignores manual backups for the countdown', () => {
+    const hint = backupHint(list([item('manual', 0), item('auto', 2 * HOUR)]), 3, true, now)
+    expect(hint.text).toBe('Next backup in 1h 00m')
+  })
+
+  it('says soon when one is due or none has run', () => {
+    expect(backupHint(list([]), 3, true, now).text).toBe('Next backup soon')
+    expect(backupHint(list([item('auto', 4 * HOUR)]), 3, true, now).text).toBe('Next backup soon')
+  })
+
+  it('falls back to the last backup when off or stopped', () => {
+    expect(backupHint(list([item('manual', 3 * HOUR)]), null, true, now).text).toBe(
+      'Last backup 3 h ago'
+    )
+    expect(backupHint(list([item('auto', 5 * 60_000)]), 3, false, now).text).toBe(
+      'Last backup 5 min ago'
+    )
+    expect(backupHint(list([]), null, false, now).text).toBe('No backups yet')
+  })
+
+  it('warns when the last automatic backup failed', () => {
+    const failed = { items: [], lastAutoFailure: { at: at(0), message: 'disk full' } }
+    expect(backupHint(failed, 3, true, now)).toEqual({
+      text: 'Last automatic backup failed',
+      warn: true
+    })
   })
 })

@@ -43,6 +43,8 @@ export interface ServerRecord {
   installState: InstallState
   createdAt: string
   tunnel?: ServerTunnel
+  /** Absent means automatic backups are off and the last 10 are kept. */
+  backup?: BackupSettings
 }
 
 export interface ServerView extends ServerRecord {
@@ -69,6 +71,7 @@ export interface ServerPatch {
   /** `null` switches back to the automatically managed Java. */
   javaPath?: string | null
   jvmArgs?: string[]
+  backup?: BackupSettings
 }
 
 export interface UpdateResult {
@@ -158,6 +161,10 @@ export type PlayerListName = 'ops' | 'whitelist' | 'bannedPlayers' | 'bannedIps'
 export interface PlayerLists {
   /** Empty unless the server is running. */
   online: string[]
+  /** Online player name → epoch ms they joined (or were first seen). */
+  onlineSince: Record<string, number>
+  /** Online player name → dimension id (e.g. "minecraft:the_nether"), once known. */
+  dimensions: Record<string, string>
   ops: OpEntry[]
   whitelist: PlayerRef[]
   whitelistEnabled: boolean
@@ -182,6 +189,17 @@ export type PlayerAction = {
   | { type: 'pardonIp'; ip: string }
   | { type: 'kick'; name: string; reason?: string }
 )
+
+export type WorldDimension = 'overworld' | 'nether' | 'end'
+
+export interface WorldInfo {
+  dimension: WorldDimension
+  /** Where it lives, relative to the server folder: "world", "world_nether" or "world/DIM-1". */
+  folder: string
+  bytes: number
+  /** Generated chunks, from the region files' location tables. */
+  chunks: number
+}
 
 export interface PlayersChangedEvent {
   serverId: string
@@ -284,10 +302,79 @@ export interface DiskUsage {
   totalBytes: number
   /** "C:" on Windows, "/" elsewhere. */
   drive: string
+  /** Total size of this server's backups; absent when unknown. */
+  backupsBytes?: number
 }
 
 export interface StatsSampleEvent {
   serverId: string
   point: StatsPoint
   samplerAvailable: boolean
+}
+
+export type BackupKind = 'manual' | 'auto' | 'pre-restore'
+
+/** Hours between automatic backups that the UI offers. */
+export const BACKUP_INTERVALS = [1, 3, 6, 12, 24] as const
+
+export interface BackupSettings {
+  /** `null` turns automatic backups off. */
+  intervalHours: number | null
+  /** How many automatic backups to keep; manual ones are never pruned. */
+  keep: number
+}
+
+export const DEFAULT_BACKUP_SETTINGS: BackupSettings = { intervalHours: null, keep: 10 }
+
+export interface BackupInfo {
+  /** File name inside the server's backup folder. */
+  file: string
+  kind: BackupKind
+  createdAt: string
+  bytes: number
+}
+
+export interface BackupFailure {
+  at: string
+  message: string
+}
+
+export interface BackupList {
+  items: BackupInfo[]
+  /** The last automatic backup's error, cleared by the next successful one. */
+  lastAutoFailure: BackupFailure | null
+}
+
+export type BackupServerMeta = Pick<
+  ServerRecord,
+  'name' | 'type' | 'mcVersion' | 'build' | 'ramMb' | 'jvmArgs' | 'launch' | 'port'
+>
+
+/** Stored as blockhost-backup.json inside every zip Blockhost makes. */
+export interface BackupMeta {
+  version: 1
+  createdAt: string
+  kind: BackupKind
+  server: BackupServerMeta
+}
+
+export interface BackupProgress {
+  serverId: string
+  op: 'backup' | 'restore'
+  percent: number
+}
+
+export interface BackupsChangedEvent {
+  serverId: string
+}
+
+export interface RestoreAsNewInput {
+  name: string
+  dir: string
+  port: number
+}
+
+export interface BackupLocation {
+  dir: string
+  isDefault: boolean
 }

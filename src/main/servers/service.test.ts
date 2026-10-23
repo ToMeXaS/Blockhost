@@ -5,12 +5,12 @@ import type { ServerRecord, ServerStatus } from '../../shared/types'
 import { AppError } from '../errors'
 import { tempDir } from '../test-utils'
 import { readPropertiesFile, writePropertiesFile } from './properties'
-import { ServerService } from './service'
+import { ServerService, type ServerServiceDeps } from './service'
 import { ServerStore } from './store'
 
 const ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 
-async function setup() {
+async function setup(extra: Partial<ServerServiceDeps> = {}) {
   const root = await tempDir()
   const store = new ServerStore(join(root, 'servers.json'))
   await store.load()
@@ -57,7 +57,8 @@ async function setup() {
     probeJava,
     isPortFree,
     removeDir,
-    folderBytes
+    folderBytes,
+    ...extra
   })
   return {
     store,
@@ -260,5 +261,38 @@ describe('ServerService', () => {
     })
     await service.remove(rec.id, true)
     expect(onRemoved).toHaveBeenCalledWith(expect.objectContaining({ id: rec.id, name: rec.name }))
+  })
+})
+
+describe('ServerService and backups', () => {
+  it('refuses to start, stop or restart while a backup runs', async () => {
+    const { processes, service } = await setup({ isBackupBusy: () => true })
+    await expect(service.start(ID)).rejects.toMatchObject({ code: 'BACKUP_BUSY' })
+    expect(() => service.stop(ID)).toThrow(expect.objectContaining({ code: 'BACKUP_BUSY' }))
+    await expect(service.restart(ID)).rejects.toMatchObject({ code: 'BACKUP_BUSY' })
+    expect(processes.start).not.toHaveBeenCalled()
+    expect(processes.stop).not.toHaveBeenCalled()
+  })
+
+  it('refuses to delete a server while a backup runs', async () => {
+    const { store, service } = await setup({ isBackupBusy: () => true })
+    await expect(service.remove(ID, true)).rejects.toMatchObject({ code: 'BACKUP_BUSY' })
+    expect(store.list()).toHaveLength(1)
+  })
+
+  it('deletes backups with the server only when asked', async () => {
+    const removeBackups = vi.fn(async () => {})
+    const first = await setup({ removeBackups })
+    await first.service.remove(ID, true, false)
+    expect(removeBackups).not.toHaveBeenCalled()
+    const second = await setup({ removeBackups })
+    await second.service.remove(ID, true, true)
+    expect(removeBackups).toHaveBeenCalledWith(ID)
+  })
+
+  it('saves backup settings from a patch', async () => {
+    const { service } = await setup()
+    const result = await service.update(ID, { backup: { intervalHours: 6, keep: 5 } })
+    expect(result.server.backup).toEqual({ intervalHours: 6, keep: 5 })
   })
 })

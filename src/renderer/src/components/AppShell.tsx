@@ -4,6 +4,7 @@ import { STATUS_DOT } from '../lib/format'
 import { sectionsFor, type Section } from '../lib/routes'
 import { DiskUsagePanel } from './DiskUsagePanel'
 import {
+  BackupsIcon,
   ChevronDownIcon,
   ConnectIcon,
   ConsoleIcon,
@@ -25,6 +26,7 @@ const SECTION_ICONS: Record<Section, ReactNode> = {
   players: <PlayersIcon />,
   content: <ContentIcon />,
   properties: <PropertiesIcon />,
+  backups: <BackupsIcon />,
   connect: <ConnectIcon />,
   settings: <SettingsIcon />
 }
@@ -143,12 +145,15 @@ export function AppShell({
         <button
           type="button"
           onClick={onAllServers}
-          className="flex h-16 shrink-0 items-center gap-2.5 px-5"
+          className="flex h-[72px] shrink-0 items-center gap-3 px-3 min-[1000px]:px-5"
           title="All servers"
         >
-          <Logo className="h-6 w-6 shrink-0" />
-          <span className="hidden text-[15px] font-bold tracking-tight min-[1000px]:inline">
-            Blockhost
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-btn border border-border bg-panel">
+            <Logo className="h-5 w-5" />
+          </span>
+          <span className="hidden text-left leading-tight min-[1000px]:block">
+            <span className="block text-[15px] font-bold tracking-tight">Blockhost</span>
+            <span className="block text-xs text-muted">Admin panel</span>
           </span>
         </button>
 
@@ -198,7 +203,7 @@ export function AppShell({
         </nav>
 
         <div className="hidden space-y-3 p-3 min-[1000px]:block">
-          {current && <DiskUsagePanel serverId={current.id} diskLimitMb={current.diskLimitMb} />}
+          {current && <DiskUsagePanel server={current} />}
           <UpdateBanner />
           {version && (
             <div className="px-2 font-mono text-[11px] text-faint">Blockhost v{version}</div>
