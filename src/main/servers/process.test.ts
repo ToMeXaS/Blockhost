@@ -243,6 +243,21 @@ describe('ProcessManager quiet commands', () => {
     expect(logs.flatMap((e) => e.lines)).not.toContain(TPS_LINE)
   })
 
+  it('keeps hiding replies to every quiet command that is still waiting', async () => {
+    const { child, quietLines, manager } = setup()
+    const DIM_LINE = '[12:00:00 INFO]: Steve has the following entity data: "minecraft:overworld"'
+    manager.start(rec, 'java')
+    manager.sendQuietCommand('s1', 'data get entity Steve Dimension', (l) =>
+      l.includes('Steve has')
+    )
+    manager.sendQuietCommand('s1', 'tps', isTps)
+    child.stdout.write(`${DIM_LINE}\n${TPS_LINE}\n`)
+    await tick()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(quietLines.map((q) => q.line)).toEqual([DIM_LINE, TPS_LINE])
+    expect(manager.getLog('s1')).not.toContain(DIM_LINE)
+  })
+
   it('shows replies to a command the user types during a quiet window', async () => {
     const { child, quietLines, manager } = setup()
     manager.start(rec, 'java')

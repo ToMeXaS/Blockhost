@@ -65,7 +65,8 @@ interface Entry {
   stopRequested: boolean
   exitWaiters: (() => void)[]
   batcher: Batcher<string>
-  quiet: { until: number; isReply: (line: string) => boolean } | null
+  /** Open reply windows of quiet commands; several can overlap. */
+  quiet: { until: number; isReply: (line: string) => boolean }[]
 }
 
 export class ProcessManager {
@@ -100,7 +101,7 @@ export class ProcessManager {
     const args = buildJavaArgs(rec)
     const entry = this.entry(rec.id)
     entry.stopRequested = false
-    entry.quiet = null
+    entry.quiet = []
     this.append(rec.id, `[Blockhost] Starting: "${javaPath}" ${args.join(' ')}`)
 
     const child = this.deps.spawn(javaPath, args, rec.dir)
@@ -146,7 +147,7 @@ export class ProcessManager {
     const entry = this.entries.get(id)
     const child = entry?.child
     if (!entry || !child) throw new AppError('NOT_RUNNING', 'The server is not running')
-    entry.quiet = null // a user command's reply must stay visible
+    entry.quiet = [] // a user command's reply must stay visible
     this.append(id, `> ${command}`)
     child.stdin.write(`${command}\n`)
   }
@@ -159,7 +160,7 @@ export class ProcessManager {
   sendQuietCommand(id: string, command: string, isReply: (line: string) => boolean): void {
     const entry = this.entries.get(id)
     if (!entry?.child) throw new AppError('NOT_RUNNING', 'The server is not running')
-    entry.quiet = { until: Date.now() + (this.deps.quietMs ?? 3000), isReply }
+    entry.quiet.push({ until: Date.now() + (this.deps.quietMs ?? 3000), isReply })
     entry.child.stdin.write(`${command}\n`)
   }
 
@@ -196,13 +197,10 @@ export class ProcessManager {
   }
 
   private isQuietReply(entry: Entry, line: string): boolean {
-    const quiet = entry.quiet
-    if (!quiet) return false
-    if (Date.now() >= quiet.until) {
-      entry.quiet = null
-      return false
-    }
-    return quiet.isReply(line)
+    if (entry.quiet.length === 0) return false
+    const now = Date.now()
+    entry.quiet = entry.quiet.filter((q) => now < q.until)
+    return entry.quiet.some((q) => q.isReply(line))
   }
 
   private entry(id: string): Entry {
@@ -217,7 +215,7 @@ export class ProcessManager {
         batcher: new Batcher<string>(this.deps.batchMs ?? 50, (lines) =>
           this.deps.onLog({ serverId: id, lines })
         ),
-        quiet: null
+        quiet: []
       }
       this.entries.set(id, entry)
     }
