@@ -59,3 +59,31 @@ body {
 ::selection {
   background: color-mix(in srgb, var(--color-accent) 35%, transparent);
 }
+
+/* Thin scrollbars whose thumb only shows while scrolling (see lib/scrollbars.ts). */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+}
+
+[data-scrolling]::-webkit-scrollbar-thumb:hover {
+  background: var(--color-faint);
+}
