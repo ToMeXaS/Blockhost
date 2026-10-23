@@ -144,7 +144,7 @@ describe('UpdateService', () => {
     updater.emit('update-available', { version: '0.2.0' })
     updater.emit('update-downloaded', { version: '0.2.0' })
     service.install()
-    expect(updater.quitAndInstall).toHaveBeenCalledWith(true, true)
+    expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true)
   })
 
   it('stop() clears the interval so no further checks happen', async () => {

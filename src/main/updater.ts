@@ -85,8 +85,9 @@ export class UpdateService {
   install(): void {
     if (this.current.state !== 'ready')
       throw new AppError('NO_UPDATE', 'No update is ready to install')
-    // Silent: the wizard installer would otherwise ask the user to click through it.
-    this.deps.updater.quitAndInstall(true, true)
+    // Not silent, so the wizard shows its progress; on an update it skips straight to
+    // installing, and its finish page relaunches the app.
+    this.deps.updater.quitAndInstall(false, true)
   }
 
   /** Downloads a found update; only needed when automatic updates are off. */
