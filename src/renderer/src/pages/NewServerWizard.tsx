@@ -10,6 +10,7 @@ import {
 } from '../../../shared/types'
 import { InstallPanel } from '../components/InstallPanel'
 import { Button, Card, ErrorText, Field, inputClass } from '../components/ui'
+import { useToast } from '../components/Toaster'
 import { api, errorMessage } from '../lib/api'
 import { defaultRamMb, formatRam, maxRamMb, TYPE_BLURB } from '../lib/format'
 
@@ -33,6 +34,7 @@ function firstFreePort(servers: ServerView[]): number {
 }
 
 export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props) {
+  const toast = useToast()
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [sys, setSys] = useState<SystemInfo | null>(null)
   const [type, setType] = useState<ServerType>('paper')
@@ -161,7 +163,6 @@ export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props)
 
   async function create() {
     setCreating(true)
-    setError(null)
     try {
       const server = await api.createServer({
         name: trimmedName,
@@ -177,7 +178,7 @@ export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props)
       setStep(3)
       onCreated()
     } catch (err) {
-      setError(errorMessage(err))
+      toast.error(errorMessage(err))
     } finally {
       setCreating(false)
     }
@@ -391,7 +392,7 @@ export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props)
                 <Button
                   variant="primary"
                   onClick={() =>
-                    void api.retryInstall(createdId).catch((err) => setError(errorMessage(err)))
+                    void api.retryInstall(createdId).catch((err) => toast.error(errorMessage(err)))
                   }
                 >
                   Retry
@@ -405,7 +406,7 @@ export function NewServerWizard({ servers, onCancel, onCreated, onOpen }: Props)
                         onCreated()
                         onCancel()
                       })
-                      .catch((err) => setError(errorMessage(err)))
+                      .catch((err) => toast.error(errorMessage(err)))
                   }
                 >
                   Delete

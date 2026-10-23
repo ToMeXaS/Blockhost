@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { SERVER_TYPE_LABELS, type ServerView } from '../../../shared/types'
 import { Logo, PlusIcon } from '../components/icons'
-import { Badge, Button, ErrorText, pageClass, StatusPill } from '../components/ui'
+import { useToast } from '../components/Toaster'
+import { Badge, Button, pageClass, StatusPill } from '../components/ui'
 import { useOnlinePlayers } from '../hooks/useOnlinePlayers'
 import { api, errorMessage } from '../lib/api'
 import { formatRam } from '../lib/format'
@@ -77,17 +78,16 @@ function ServerCard({
 }
 
 export function ServerList({ servers, loaded, onOpen, onNew }: Props) {
+  const toast = useToast()
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   async function toggle(server: ServerView) {
     setBusyId(server.id)
-    setError(null)
     try {
       if (isUp(server)) await api.stop(server.id)
       else await api.start(server.id)
     } catch (err) {
-      setError(`${server.name}: ${errorMessage(err)}`)
+      toast.error(`${server.name}: ${errorMessage(err)}`)
     } finally {
       setBusyId(null)
     }
@@ -107,8 +107,6 @@ export function ServerList({ servers, loaded, onOpen, onNew }: Props) {
           New server
         </Button>
       </div>
-
-      {error && <ErrorText>{error}</ErrorText>}
 
       {loaded && servers.length === 0 && (
         <div className="mx-auto max-w-md space-y-4 rounded-card border border-border bg-panel p-10 text-center">

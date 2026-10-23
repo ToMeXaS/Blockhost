@@ -30,6 +30,8 @@
   --color-stop-bg: #2a1717;
   --color-stop-text: #f7b0a7;
   --color-stop-border: #4a2a2a;
+  --color-info-bg: #15202d;
+  --color-info-border: #22364d;
   --color-warn-bg: #2a2214;
   --color-warn-border: #4a3b1e;
 
@@ -86,4 +88,99 @@ body {
 
 [data-scrolling]::-webkit-scrollbar-thumb:hover {
   background: var(--color-faint);
+}
+
+/* Toasts: a panel card tinted by its tone (--tone), with a bar that drains until it closes. */
+.toast {
+  --tone: var(--color-info);
+  background:
+    radial-gradient(
+      120% 140% at 0% 0%,
+      color-mix(in srgb, var(--tone) 9%, transparent),
+      transparent 55%
+    ),
+    var(--color-panel);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--tone) 6%, transparent),
+    0 18px 40px -12px rgb(0 0 0 / 0.65),
+    0 4px 12px -4px rgb(0 0 0 / 0.5);
+  animation: toast-in 260ms cubic-bezier(0.21, 1.02, 0.73, 1);
+}
+
+.toast[data-tone='success'] {
+  --tone: var(--color-accent);
+}
+.toast[data-tone='error'] {
+  --tone: var(--color-danger);
+}
+.toast[data-tone='warn'] {
+  --tone: var(--color-warn);
+}
+
+.toast[data-leaving] {
+  animation: toast-out 180ms ease-in forwards;
+}
+
+.toast-icon {
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 12%, var(--color-panel));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--tone) 28%, transparent),
+    0 0 16px -4px color-mix(in srgb, var(--tone) 45%, transparent);
+}
+
+.toast-label {
+  color: var(--tone);
+}
+
+.toast-progress {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 40%, transparent), var(--tone));
+  transform-origin: left;
+  animation: toast-progress linear forwards;
+}
+
+.toast:hover .toast-progress {
+  animation-play-state: paused;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px) scale(0.97);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(24px) scale(0.97);
+  }
+}
+
+@keyframes toast-progress {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Still fades, so the leave animation ends and the toast is removed. */
+  .toast {
+    animation-name: toast-fade-in;
+  }
+  .toast[data-leaving] {
+    animation-name: toast-fade-out;
+  }
+}
+
+@keyframes toast-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes toast-fade-out {
+  to {
+    opacity: 0;
+  }
 }

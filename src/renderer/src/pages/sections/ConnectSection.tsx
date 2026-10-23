@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { NetInfo, ServerView, TunnelState, TunnelStatus } from '../../../../shared/types'
 import { Badge, Button, Card, ErrorText, Notice, Switch } from '../../components/ui'
 import { CopyIcon } from '../../components/icons'
+import { useToast } from '../../components/Toaster'
 import { api, ApiCallError, errorMessage } from '../../lib/api'
 
 const TUNNEL_BADGE: Record<
@@ -47,6 +48,7 @@ function TunnelCard({
   onChanged: () => void
   addressRow: (address: string) => ReactNode
 }) {
+  const toast = useToast()
   const [linked, setLinked] = useState<boolean | null>(null)
   const [linking, setLinking] = useState(false)
   const [status, setStatus] = useState<TunnelStatus | null>(null)
@@ -80,11 +82,10 @@ function TunnelCard({
 
   async function run(action: () => Promise<void>) {
     setBusy(true)
-    setError(null)
     try {
       await action()
     } catch (err) {
-      if (!(err instanceof ApiCallError && err.code === 'CANCELLED')) setError(errorMessage(err))
+      if (!(err instanceof ApiCallError && err.code === 'CANCELLED')) toast.error(errorMessage(err))
     } finally {
       setBusy(false)
     }

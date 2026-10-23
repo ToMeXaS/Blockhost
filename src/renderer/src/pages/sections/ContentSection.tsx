@@ -18,6 +18,7 @@ import {
   Th,
   trClass
 } from '../../components/ui'
+import { useToast } from '../../components/Toaster'
 import { api, errorMessage } from '../../lib/api'
 
 const SEARCH_DEBOUNCE_MS = 300
@@ -34,6 +35,7 @@ export function ContentSection({ server }: { server: ServerView }) {
   const locked =
     server.status === 'starting' || server.status === 'running' || server.status === 'stopping'
 
+  const toast = useToast()
   const [installed, setInstalled] = useState<InstalledContentList | null>(null)
   const [installedError, setInstalledError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -41,8 +43,6 @@ export function ContentSection({ server }: { server: ServerView }) {
   const [total, setTotal] = useState(0)
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [restartNeeded, setRestartNeeded] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const searchSeq = useRef(0)
@@ -94,12 +94,10 @@ export function ContentSection({ server }: { server: ServerView }) {
 
   async function act(key: string, action: () => Promise<void>) {
     setBusy(key)
-    setError(null)
-    setNotice(null)
     try {
       await action()
     } catch (err) {
-      setError(errorMessage(err))
+      toast.error(errorMessage(err))
     } finally {
       setBusy(null)
     }
@@ -109,11 +107,12 @@ export function ContentSection({ server }: { server: ServerView }) {
     act(hit.projectId, async () => {
       const r = await api.contentInstall(server.id, hit.projectId)
       const [main, ...deps] = r.installed
-      setNotice(
-        main
-          ? `Installed ${main.title}${deps.length ? ` + ${deps.map((d) => `${d.title} (dependency)`).join(', ')}` : ''}.`
-          : `${hit.title} is already installed.`
-      )
+      if (main) {
+        const extra = deps.map((d) => `${d.title} (dependency)`).join(', ')
+        toast.success(`Installed ${main.title}${deps.length ? ` + ${extra}` : ''}.`)
+      } else {
+        toast.info(`${hit.title} is already installed.`)
+      }
       if (r.restartNeeded) setRestartNeeded(true)
       setHits((prev) =>
         prev.map((h) => (h.projectId === hit.projectId ? { ...h, installed: true } : h))
@@ -124,11 +123,11 @@ export function ContentSection({ server }: { server: ServerView }) {
   const update = (item: InstalledContent) =>
     act(item.fileName, async () => {
       const r = await api.contentUpdate(server.id, item.fileName)
-      setNotice(
-        r.installed[0]
-          ? `Updated ${item.title} to ${r.installed[0].versionNumber}.`
-          : `${item.title} is up to date.`
-      )
+      if (r.installed[0]) {
+        toast.success(`Updated ${item.title} to ${r.installed[0].versionNumber}.`)
+      } else {
+        toast.info(`${item.title} is up to date.`)
+      }
       void loadInstalled()
     })
 
@@ -139,7 +138,7 @@ export function ContentSection({ server }: { server: ServerView }) {
     if (!window.confirm(warning)) return
     void act(item.fileName, async () => {
       await api.contentRemove(server.id, item.fileName)
-      setNotice(`Removed ${item.title}.`)
+      toast.success(`Removed ${item.title}.`)
       const list = await loadInstalled()
       // Another jar from the same project (e.g. a second copy) may still be installed.
       if (list && !list.items.some((i) => i.projectId === item.projectId)) {
@@ -155,8 +154,6 @@ export function ContentSection({ server }: { server: ServerView }) {
       {restartNeeded && server.status === 'running' && (
         <Notice tone="warn">Restart the server to apply changes.</Notice>
       )}
-      {error && <ErrorText>{error}</ErrorText>}
-      {notice && <Notice tone="ok">{notice}</Notice>}
 
       <Card title={`Installed ${noun}`}>
         <div className="space-y-3">

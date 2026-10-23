@@ -20,6 +20,7 @@ import {
   Th,
   trClass
 } from '../../components/ui'
+import { useToast } from '../../components/Toaster'
 import { api, ApiCallError, errorMessage } from '../../lib/api'
 
 const LIST_FILE_NAMES: Record<PlayerListName, string> = {
@@ -103,8 +104,9 @@ function AddForm({
 }
 
 export function PlayersSection({ server }: { server: ServerView }) {
+  const toast = useToast()
   const [lists, setLists] = useState<PlayerLists | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<Pending | null>(null)
   const [pendingReason, setPendingReason] = useState('')
@@ -118,11 +120,11 @@ export function PlayersSection({ server }: { server: ServerView }) {
       .then((result) => {
         if (requestId !== requestIdRef.current) return // a later refresh has superseded this one
         setLists(result)
-        setError(null)
+        setLoadError(null)
       })
       .catch((err) => {
         if (requestId !== requestIdRef.current) return
-        setError(errorMessage(err))
+        setLoadError(errorMessage(err))
       })
   }, [server.id])
 
@@ -141,7 +143,6 @@ export function PlayersSection({ server }: { server: ServerView }) {
 
   async function act(action: PlayerAction): Promise<boolean> {
     setBusy(true)
-    setError(null)
     try {
       setLists(await api.playerAction(server.id, action))
       return true
@@ -153,7 +154,7 @@ export function PlayersSection({ server }: { server: ServerView }) {
       ) {
         return await act({ ...action, overwriteCorrupt: true })
       }
-      setError(errorMessage(err))
+      toast.error(errorMessage(err))
       return false
     } finally {
       setBusy(false)
@@ -170,7 +171,7 @@ export function PlayersSection({ server }: { server: ServerView }) {
   }
 
   if (!lists) {
-    return error ? <ErrorText>{error}</ErrorText> : <Empty>Loading…</Empty>
+    return loadError ? <ErrorText>{loadError}</ErrorText> : <Empty>Loading…</Empty>
   }
 
   const isOp = (name: string) => lists.ops.some((o) => o.name.toLowerCase() === name.toLowerCase())
@@ -178,7 +179,7 @@ export function PlayersSection({ server }: { server: ServerView }) {
 
   return (
     <div className="space-y-4 pb-6">
-      {error && <ErrorText>{error}</ErrorText>}
+      {loadError && <ErrorText>{loadError}</ErrorText>}
       {lists.corrupt.length > 0 && (
         <ErrorText>
           Could not read {lists.corrupt.map((l) => LIST_FILE_NAMES[l]).join(', ')}. The list is

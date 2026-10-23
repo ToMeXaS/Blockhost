@@ -12,6 +12,7 @@ import {
   Th,
   trClass
 } from '../../components/ui'
+import { useToast } from '../../components/Toaster'
 import { api, errorMessage } from '../../lib/api'
 
 type Kind = 'text' | 'number' | 'bool' | 'select'
@@ -77,11 +78,11 @@ export function PropertiesSection({
   server: ServerView
   onChanged: () => void
 }) {
+  const toast = useToast()
   const [entries, setEntries] = useState<PropertyEntry[] | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [newKey, setNewKey] = useState('')
   const [newValue, setNewValue] = useState('')
 
@@ -89,7 +90,7 @@ export function PropertiesSection({
     api
       .readProperties(server.id)
       .then(setEntries)
-      .catch((err) => setError(errorMessage(err)))
+      .catch((err) => setLoadError(errorMessage(err)))
   }, [server.id])
 
   const get = (key: string): string =>
@@ -103,39 +104,40 @@ export function PropertiesSection({
         : [...list, { key, value }]
     })
     setDirty(true)
-    setNotice(null)
   }
 
   function remove(key: string) {
     setEntries((prev) => (prev ?? []).filter((e) => e.key !== key))
     setDirty(true)
-    setNotice(null)
   }
 
   async function save() {
     if (!entries) return
     setSaving(true)
-    setError(null)
     try {
       await api.writeProperties(server.id, entries)
       setDirty(false)
       const stopped = server.status === 'stopped' || server.status === 'crashed'
-      setNotice(stopped ? 'Saved.' : 'Saved. Restart the server to apply the changes.')
+      if (stopped) toast.success('Saved.')
+      else toast.warn('Saved. Restart the server to apply the changes.')
       onChanged()
     } catch (err) {
-      setError(errorMessage(err))
+      toast.error(errorMessage(err))
     } finally {
       setSaving(false)
     }
   }
 
   if (!entries)
-    return error ? <ErrorText>{error}</ErrorText> : <p className="text-sm text-faint">Loading…</p>
+    return loadError ? (
+      <ErrorText>{loadError}</ErrorText>
+    ) : (
+      <p className="text-sm text-faint">Loading…</p>
+    )
 
   const commonKeys = new Set(COMMON.map((c) => c.key))
   const advanced = entries.filter((e) => !commonKeys.has(e.key))
   const newKeyValid = KEY_PATTERN.test(newKey) && !entries.some((e) => e.key === newKey)
-  const restartNeeded = !!notice && notice !== 'Saved.'
 
   return (
     <div className="space-y-4 pb-6">
@@ -224,9 +226,7 @@ export function PropertiesSection({
         </Table>
       </Card>
 
-      {error && <ErrorText>{error}</ErrorText>}
       <div className="flex items-center justify-end gap-3">
-        {notice && <Notice tone={restartNeeded ? 'warn' : 'ok'}>{notice}</Notice>}
         <Button variant="primary" disabled={!dirty || saving} onClick={() => void save()}>
           {saving ? 'Saving…' : 'Save changes'}
         </Button>
