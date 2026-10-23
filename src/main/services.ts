@@ -22,6 +22,8 @@ import { ServerInstaller } from './servers/installer'
 import { defaultSpawn, killTree, ProcessManager } from './servers/process'
 import { ServerService } from './servers/service'
 import { ServerStore } from './servers/store'
+import { ProcessSampler } from './stats/sampler'
+import { StatsService } from './stats/service'
 import { PlayitAccount } from './tunnel/account'
 import { AgentProcess } from './tunnel/agent'
 import { createPlayitApi } from './tunnel/api'
@@ -41,6 +43,7 @@ export interface Services {
   players: PlayerService
   tunnels: TunnelService
   content: ContentService
+  stats: StatsService
 }
 
 export async function createServices(opts: {
@@ -82,11 +85,13 @@ export async function createServices(opts: {
       send('server:status', event)
       players.onStatus(event)
       tunnels.onServerStatus(event)
+      stats.onStatus(event)
     },
     onLog: (event) => {
       send('server:log', event)
       players.onLog(event)
-    }
+    },
+    onQuietLine: (serverId, line) => stats.onQuietLine(serverId, line)
   })
   const players = new PlayerService({
     store,
@@ -94,6 +99,16 @@ export async function createServices(opts: {
     lookup: (name, onlineMode) => lookupPlayer(http, name, onlineMode),
     watch: defaultWatch,
     emit: (event) => send('players:changed', event)
+  })
+  const sampler = new ProcessSampler({
+    spawn: defaultSpawn,
+    onSample: (sample) => stats.onSample(sample)
+  })
+  const stats = new StatsService({
+    store,
+    processes,
+    sampler,
+    emit: (event) => send('stats:sample', event)
   })
   const playitDir = join(dataDir, 'playit')
   const playitApi = createPlayitApi()
@@ -147,6 +162,7 @@ export async function createServices(opts: {
     servers,
     players,
     tunnels,
-    content
+    content,
+    stats
   }
 }

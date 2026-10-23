@@ -45,8 +45,18 @@ export function registerIpc(
   getWindow: () => BrowserWindow | null,
   updates: { status(): UpdateStatus; requestInstall(): void }
 ): void {
-  const { servers, installer, providers, javaManager, http, paths, players, tunnels, content } =
-    services
+  const {
+    servers,
+    installer,
+    providers,
+    javaManager,
+    http,
+    paths,
+    players,
+    tunnels,
+    content,
+    stats
+  } = services
 
   const openDialog = async (options: OpenDialogOptions): Promise<string | null> => {
     const win = getWindow()
@@ -96,6 +106,7 @@ export function registerIpc(
   handle('players:action', z.tuple([idSchema, playerActionSchema]), (id, action) =>
     players.action(id, action)
   )
+  handle('stats:get', z.tuple([idSchema]), (id) => stats.snapshot(id))
 
   handle('tunnel:account', z.tuple([]), () => tunnels.account())
   handle('tunnel:link', z.tuple([]), () => tunnels.link())

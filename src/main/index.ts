@@ -139,7 +139,10 @@ app.on('before-quit', (event) => {
 })
 
 app.on('window-all-closed', () => app.quit())
-app.on('will-quit', () => services?.tunnels.dispose())
+app.on('will-quit', () => {
+  services?.tunnels.dispose()
+  services?.stats.dispose()
+})
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()

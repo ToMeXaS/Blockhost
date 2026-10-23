@@ -4,6 +4,7 @@ import type {
   Result,
   ServerLogEvent,
   ServerStatusEvent,
+  StatsSampleEvent,
   TunnelStatus,
   UpdateStatus
 } from './types'
@@ -28,6 +29,7 @@ export const INVOKE_CHANNELS = [
   'servers:openFolder',
   'players:get',
   'players:action',
+  'stats:get',
   'tunnel:account',
   'tunnel:link',
   'tunnel:cancelLink',
@@ -56,6 +58,7 @@ export const EVENT_CHANNELS = [
   'server:status',
   'server:log',
   'players:changed',
+  'stats:sample',
   'tunnel:status',
   'install:progress',
   'net:offline',
@@ -67,6 +70,7 @@ export interface EventPayloads {
   'server:status': ServerStatusEvent
   'server:log': ServerLogEvent
   'players:changed': PlayersChangedEvent
+  'stats:sample': StatsSampleEvent
   'tunnel:status': TunnelStatus
   'install:progress': InstallProgress
   'net:offline': { url: string }

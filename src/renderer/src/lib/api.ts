@@ -13,6 +13,7 @@ import type {
   ServerPatch,
   ServerType,
   ServerView,
+  StatsSnapshot,
   SystemInfo,
   TunnelStatus,
   UpdateResult,
@@ -64,6 +65,7 @@ export const api = {
   getPlayers: (id: string) => call<PlayerLists>('players:get', id),
   playerAction: (id: string, action: PlayerAction) =>
     call<PlayerLists>('players:action', id, action),
+  statsGet: (id: string) => call<StatsSnapshot>('stats:get', id),
 
   tunnelAccount: () => call<PlayitAccountStatus>('tunnel:account'),
   tunnelLink: () => call<void>('tunnel:link'),
