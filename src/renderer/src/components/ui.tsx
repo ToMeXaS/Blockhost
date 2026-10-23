@@ -165,6 +165,49 @@ export function Badge({
   )
 }
 
+const TILE_BARS = {
+  accent: 'bg-accent',
+  info: 'bg-info',
+  warn: 'bg-warn'
+} as const
+
+export function StatTile({
+  label,
+  value,
+  unit,
+  chip,
+  bar,
+  barTone
+}: {
+  label: string
+  value: ReactNode
+  unit?: ReactNode
+  chip?: ReactNode
+  /** 0–100; values outside are clamped. */
+  bar: number
+  barTone: keyof typeof TILE_BARS
+}) {
+  const width = Math.max(0, Math.min(100, bar))
+  return (
+    <div className="rounded-card border border-border bg-panel p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-muted">{label}</span>
+        {chip}
+      </div>
+      <div className="mt-2 flex items-baseline gap-1.5">
+        <span className="font-mono text-2xl font-semibold text-text">{value}</span>
+        {unit && <span className="text-sm text-muted">{unit}</span>}
+      </div>
+      <div className="mt-3 h-1 overflow-hidden rounded-full bg-panel-2">
+        <div
+          className={`h-full rounded-full transition-[width] ${TILE_BARS[barTone]}`}
+          style={{ width: `${width}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function TypeBadge({ server }: { server: Pick<ServerView, 'type' | 'mcVersion'> }) {
   return (
     <Badge mono>
