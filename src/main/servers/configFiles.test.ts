@@ -154,6 +154,23 @@ describe('applyEdits', () => {
     )
   })
 
+  it('quotes flow-list items that contain flow indicators', () => {
+    const out = applyEdits('f: [x, y]\n',[{ path: ['f'], value: ['a, b', 'c'] }])
+    expect(flattenYaml(out)[0]).toMatchObject({ kind: 'list', value: ['a, b', 'c'] })
+  })
+
+  it('fills an empty flow list', () => {
+    const out = applyEdits('f: []\n',[{ path: ['f'], value: ['x'] }])
+    expect(flattenYaml(out)[0]).toMatchObject({ kind: 'list', value: ['x'] })
+  })
+
+  it('refuses wrong value types for bools and lists', () => {
+    expect(() => applyEdits(SAMPLE, [{ path: ['settings', 'allow-end'], value: 'yes' }])).toThrow(
+      /type/
+    )
+    expect(() => applyEdits(SAMPLE, [{ path: ['settings', 'list'], value: 'a' }])).toThrow(/type/)
+  })
+
   it('refuses line breaks', () => {
     expect(() => applyEdits(SAMPLE, [{ path: ['top'], value: 'a\nb' }])).toThrow(/Line breaks/)
   })

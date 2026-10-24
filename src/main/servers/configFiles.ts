@@ -139,11 +139,15 @@ function findNode(doc: Document, path: string[]): unknown {
   return node
 }
 
-function scalarText(value: string, type?: string | null): string {
+function scalarText(value: string, type?: string | null, flow = false): string {
   if (/[\r\n]/.test(value)) {
     throw new AppError('CONFIG_VALUE', 'Line breaks are not allowed here; use Raw mode')
   }
   const defaultStringType = type === 'QUOTE_DOUBLE' || type === 'QUOTE_SINGLE' ? type : 'PLAIN'
+  // Flow context: plain text containing flow indicators would split or nest the list.
+  if (flow && /[,[\]{}]/.test(value)) {
+    return stringify(value, { defaultStringType: 'QUOTE_SINGLE', lineWidth: 0 }).trimEnd()
+  }
   return stringify(value, { defaultStringType, lineWidth: 0 }).trimEnd()
 }
 
@@ -175,7 +179,8 @@ function spliceFor(doc: Document, text: string, edit: ConfigEdit, eol: string): 
       return { start, end, text: scalarText(value, (node as { type?: string }).type) }
     case 'list': {
       if (!Array.isArray(value)) throw wrongType()
-      const items = value.map((item) => scalarText(item))
+      const isFlow = Boolean((node as YAMLSeq).flow)
+      const items = value.map((item) => scalarText(item, null, isFlow))
       if ((node as YAMLSeq).flow) {
         return { start, end, text: items.length ? `[ ${items.join(', ')} ]` : '[]' }
       }
