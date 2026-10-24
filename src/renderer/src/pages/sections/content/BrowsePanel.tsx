@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import {
   CONTENT_CATEGORIES,
   CONTENT_CATEGORY_LABELS,
@@ -78,27 +78,31 @@ export function BrowsePanel({ server, noun, available, onOpen, onInstalled }: Pr
               const on = s.sources.includes(source)
               const st = status(source)
               return (
-                <button
-                  key={source}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() =>
-                    st?.status === 'error' && on ? s.retry() : s.toggleSource(source)
-                  }
-                  className={`rounded-btn border px-3 py-1 text-[13px] ${on ? 'border-accent bg-panel-2 text-text' : 'border-border text-muted'}`}
-                  title={st?.message}
-                >
-                  {label}
-                  {on && st?.status === 'ok' && (
-                    <span className="ml-1.5 font-mono text-xs text-faint">{st.total}</span>
-                  )}
+                <Fragment key={source}>
+                  <button
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => s.toggleSource(source)}
+                    className={`rounded-btn border px-3 py-1 text-[13px] ${on ? 'border-accent bg-panel-2 text-text' : 'border-border text-muted'}`}
+                    title={st?.message}
+                  >
+                    {label}
+                    {on && st?.status === 'ok' && (
+                      <span className="ml-1.5 font-mono text-xs text-faint">{st.total}</span>
+                    )}
+                    {on && st?.status === 'error' && (
+                      <span className="ml-1.5 text-xs text-danger">unavailable</span>
+                    )}
+                    {on && st?.status === 'skipped' && (
+                      <span className="ml-1.5 text-xs text-faint">no matching category</span>
+                    )}
+                  </button>
                   {on && st?.status === 'error' && (
-                    <span className="ml-1.5 text-xs text-danger">unavailable · Retry</span>
+                    <Button size="sm" variant="ghost" title={st.message} onClick={s.retry}>
+                      Retry {label}
+                    </Button>
                   )}
-                  {on && st?.status === 'skipped' && (
-                    <span className="ml-1.5 text-xs text-faint">no matching category</span>
-                  )}
-                </button>
+                </Fragment>
               )
             })}
           </div>
