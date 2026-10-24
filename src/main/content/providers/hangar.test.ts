@@ -115,7 +115,9 @@ describe('hangarProvider', () => {
     expect(new URL(urls[0]).pathname).toBe('/api/v1/projects/ViaBackwards/versions')
     expect(new URL(urls[0]).searchParams.get('platform')).toBe('PAPER')
     expect(compatible.every((v) => v.mcVersions.includes('1.21.4'))).toBe(true)
+    expect(new URL(urls[0]).searchParams.get('platformVersion')).toBe('1.21.4')
     const all = await p.allVersions('ViaBackwards')
+    expect(new URL(urls[1]).searchParams.get('platformVersion')).toBeNull()
     expect(all.length).toBeGreaterThan(compatible.length)
     const first = all[0]
     expect(first.file.hash?.algo).toBe('sha256')

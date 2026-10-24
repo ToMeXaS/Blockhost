@@ -130,9 +130,10 @@ export function hangarProvider(opts: {
     resetHeader: 'Retry-After'
   })
 
-  async function allVersions(projectId: string): Promise<Version[]> {
+  async function fetchVersions(projectId: string, mcVersion?: string): Promise<Version[]> {
+    const filter = mcVersion ? `&platformVersion=${encodeURIComponent(mcVersion)}` : ''
     const r = await http.json<{ result: HangarVersion[] }>(
-      `/projects/${encodeURIComponent(projectId)}/versions?limit=${VERSION_PAGE}&offset=0&platform=${PLATFORM}`
+      `/projects/${encodeURIComponent(projectId)}/versions?limit=${VERSION_PAGE}&offset=0&platform=${PLATFORM}${filter}`
     )
     // Hangar returns newest first.
     return r.result.map((v) => toVersion(projectId, v))
@@ -211,9 +212,12 @@ export function hangarProvider(opts: {
       }
     },
 
-    allVersions,
+    allVersions: (projectId) => fetchVersions(projectId),
     async versions(projectId, _target, mcVersion) {
-      return (await allVersions(projectId)).filter((v) => v.mcVersions.includes(mcVersion))
+      // Filtered server-side so older Minecraft versions are not lost beyond the newest page.
+      return (await fetchVersions(projectId, mcVersion)).filter((v) =>
+        v.mcVersions.includes(mcVersion)
+      )
     }
   }
 }
