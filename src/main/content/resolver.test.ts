@@ -361,4 +361,16 @@ describe('planInstall external and manual dependencies', () => {
     ])
     expect(plan.optional).toEqual(['OPT'])
   })
+
+  it('plans the pinned older version when the provider has no version() lookup', async () => {
+    const c = ctx([project('P', 'p', 'Pee')], [version('v2', 'P'), version('v1', 'P')])
+    const newer = toVersion(version('v2', 'P'))
+    const older = toVersion(version('v1', 'P'))
+    c.provider = {
+      label: c.provider.label,
+      project: c.provider.project,
+      versions: async () => [newer, older]
+    }
+    expect((await planInstall('p', c, 'v1')).items[0].versionId).toBe('v1')
+  })
 })

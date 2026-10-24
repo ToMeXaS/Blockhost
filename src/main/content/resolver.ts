@@ -1,3 +1,4 @@
+import type { ContentChannel } from '../../shared/types'
 import { AppError } from '../errors'
 import { isNotFound } from './http'
 import type { ContentTarget } from './loaders'
@@ -17,6 +18,8 @@ export interface PlanItem {
   title: string
   versionNumber: string
   iconUrl: string | null
+  channel: ContentChannel
+  publishedAt: string | null
   file: PlanFile
   /** Same-source project ids of the planned items that need this one. */
   dependencyOf: string[]
@@ -127,8 +130,11 @@ export async function planInstall(
     }
 
     const candidates = await ctx.provider.versions(project.id, ctx.target, ctx.mcVersion)
+    // A pinned id that is among the compatible candidates needs no lookup (some sources have no version()).
     const version =
-      (await compatibleVersion(pinned, project.id)) ?? pickVersion(candidates, ctx.includeBeta)
+      (pinned ? (candidates.find((v) => v.id === pinned && downloadable(v)) ?? null) : null) ??
+      (await compatibleVersion(pinned, project.id)) ??
+      pickVersion(candidates, ctx.includeBeta)
     if (!version) {
       const external = candidates.find((v) => v.file.externalUrl)?.file.externalUrl ?? null
       if (parent) {
@@ -160,6 +166,8 @@ export async function planInstall(
       title: project.title,
       versionNumber: version.versionNumber,
       iconUrl: project.iconUrl,
+      channel: version.channel,
+      publishedAt: version.publishedAt,
       file: {
         url: version.file.url!,
         filename: version.file.filename,
