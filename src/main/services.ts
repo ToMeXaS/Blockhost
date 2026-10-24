@@ -153,7 +153,8 @@ export async function createServices(opts: {
     providers: createContentProviders({
       userAgent: `Blockhost/${appVersion} (github.com/ToMeXaS/blockhost)`
     }),
-    download: downloadFile
+    download: downloadFile,
+    onUpdates: (serverId, count) => send('content:updates', { serverId, count })
   })
   const backups = new BackupService({
     store,

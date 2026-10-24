@@ -6,7 +6,9 @@ import type {
   BackupLocation,
   BackupMeta,
   ContentInstallResult,
+  ContentOrphan,
   ContentSearchResult,
+  ContentUpdateAllResult,
   CreateServerInput,
   DiskUsage,
   InstalledContentList,
@@ -106,7 +108,15 @@ export const api = {
     call<ContentInstallResult>('content:install', id, projectId),
   contentUpdate: (id: string, fileName: string) =>
     call<ContentInstallResult>('content:update', id, fileName),
-  contentRemove: (id: string, fileName: string) => call<void>('content:remove', id, fileName),
+  contentRemove: (id: string, fileName: string, removeOrphans = false) =>
+    call<void>('content:remove', id, fileName, { removeOrphans }),
+  contentSetEnabled: (id: string, fileName: string, enabled: boolean) =>
+    call<void>('content:setEnabled', id, fileName, enabled),
+  contentUpdateAll: (id: string) => call<ContentUpdateAllResult>('content:updateAll', id),
+  contentOrphans: (id: string, fileName: string) =>
+    call<ContentOrphan[]>('content:orphans', id, fileName),
+  contentSetIncludeBeta: (id: string, value: boolean) =>
+    call<void>('content:setIncludeBeta', id, value),
 
   installJava: (major: number) => call<void>('java:install', major),
   systemInfo: () => call<SystemInfo>('system:info'),

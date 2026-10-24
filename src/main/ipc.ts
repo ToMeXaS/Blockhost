@@ -186,8 +186,24 @@ export function registerIpc(
   handle('content:update', z.tuple([idSchema, contentFileSchema]), (id, fileName) =>
     content.update(id, fileName)
   )
-  handle('content:remove', z.tuple([idSchema, contentFileSchema]), (id, fileName) =>
-    content.remove(id, fileName)
+  handle(
+    'content:remove',
+    z.tuple([
+      idSchema,
+      contentFileSchema,
+      z.strictObject({ removeOrphans: z.boolean() }).optional()
+    ]),
+    (id, fileName, opts?: { removeOrphans: boolean }) => content.remove(id, fileName, opts)
+  )
+  handle('content:setEnabled', z.tuple([idSchema, contentFileSchema, z.boolean()]), (id, f, on) =>
+    content.setEnabled(id, f, on)
+  )
+  handle('content:updateAll', z.tuple([idSchema]), (id) => content.updateAll(id))
+  handle('content:orphans', z.tuple([idSchema, contentFileSchema]), (id, f) =>
+    content.orphansOf(id, f)
+  )
+  handle('content:setIncludeBeta', z.tuple([idSchema, z.boolean()]), (id, v) =>
+    content.setIncludeBeta(id, v)
   )
 
   handle('java:install', z.tuple([javaMajorSchema]), async (major) => {
