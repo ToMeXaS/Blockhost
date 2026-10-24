@@ -1,13 +1,14 @@
 import { AppError } from '../errors'
 import { isNotFound } from './http'
-import type { ModrinthClient, ModrinthFile, ModrinthVersion } from './modrinth'
+import type { ContentTarget } from './loaders'
+import { isCompatible, type ContentProvider, type Version } from './types'
 
 export interface PlanFile {
   url: string
   filename: string
-  sha1: string
-  sha512: string
-  size: number
+  sha1: string | null
+  hash: { algo: 'sha512' | 'sha256' | 'sha1'; value: string } | null
+  size: number | null
 }
 
 export interface PlanItem {
@@ -15,7 +16,9 @@ export interface PlanItem {
   versionId: string
   title: string
   versionNumber: string
+  iconUrl: string | null
   file: PlanFile
+  /** Same-source project ids of the planned items that need this one. */
   dependencyOf: string[]
 }
 
@@ -25,37 +28,44 @@ export interface PlanLink {
   parentId: string
 }
 
+/** A required dependency the source names but cannot install for us. */
+export interface ManualDependency {
+  title: string
+  externalUrl: string | null
+  neededBy: string
+}
+
 export interface Plan {
   items: PlanItem[]
   links: PlanLink[]
+  manual: ManualDependency[]
+  /** Project ids of the root version's optional dependencies (informational). */
+  optional: string[]
 }
 
 export interface ResolveContext {
-  client: Pick<ModrinthClient, 'project' | 'version' | 'versions'>
-  loaders: string[]
+  provider: Pick<ContentProvider, 'label' | 'project' | 'versions' | 'version'>
+  target: ContentTarget
   mcVersion: string
   installedProjectIds: Set<string>
+  includeBeta: boolean
   /** e.g. "Paper 1.21.4", used in messages */
   targetLabel: string
 }
 
-const TYPE_ORDER: ModrinthVersion['version_type'][] = ['release', 'beta', 'alpha']
+const downloadable = (v: Version): boolean => v.file.url !== null && v.file.filename !== ''
 
-export function isCompatible(v: ModrinthVersion, loaders: string[], mcVersion: string): boolean {
-  return v.game_versions.includes(mcVersion) && v.loaders.some((l) => loaders.includes(l))
-}
-
-/** `versions` is newest first, as Modrinth returns them. */
-export function pickVersion(versions: ModrinthVersion[]): ModrinthVersion | null {
-  for (const type of TYPE_ORDER) {
-    const found = versions.find((v) => v.version_type === type && v.files.length > 0)
+/** `versions` is newest first. */
+export function pickVersion(versions: Version[], includeBeta: boolean): Version | null {
+  const usable = versions.filter(downloadable)
+  if (includeBeta) {
+    return usable.find((v) => v.channel !== 'alpha') ?? usable[0] ?? null
+  }
+  for (const channel of ['release', 'beta', 'alpha'] as const) {
+    const found = usable.find((v) => v.channel === channel)
     if (found) return found
   }
   return null
-}
-
-export function primaryFile(v: ModrinthVersion): ModrinthFile {
-  return v.files.find((f) => f.primary) ?? v.files[0]
 }
 
 export async function planInstall(
@@ -65,18 +75,22 @@ export async function planInstall(
 ): Promise<Plan> {
   const items: PlanItem[] = []
   const links: PlanLink[] = []
+  const manual: ManualDependency[] = []
+  let optional: string[] = []
   const byProject = new Map<string, PlanItem>()
+  const gone = (title: string): AppError =>
+    new AppError(
+      'CONTENT_DEPENDENCY_UNAVAILABLE',
+      `${title} needs a dependency that is no longer on ${ctx.provider.label}.`
+    )
 
-  async function compatibleVersion(
-    id: string | null,
-    projectId: string
-  ): Promise<ModrinthVersion | null> {
-    if (!id) return null
+  async function compatibleVersion(id: string | null, projectId: string): Promise<Version | null> {
+    if (!id || !ctx.provider.version) return null
     try {
-      const v = await ctx.client.version(id)
-      return v.project_id === projectId &&
-        isCompatible(v, ctx.loaders, ctx.mcVersion) &&
-        v.files.length > 0
+      const v = await ctx.provider.version(id)
+      return v.projectId === projectId &&
+        isCompatible(v, ctx.target.loaders, ctx.mcVersion) &&
+        downloadable(v)
         ? v
         : null
     } catch (err) {
@@ -87,19 +101,14 @@ export async function planInstall(
 
   async function visit(
     idOrSlug: string,
-    pinnedVersion: string | null,
+    pinned: string | null,
     parent: PlanItem | null
   ): Promise<void> {
     let project
     try {
-      project = await ctx.client.project(idOrSlug)
+      project = await ctx.provider.project(idOrSlug)
     } catch (err) {
-      if (parent && isNotFound(err)) {
-        throw new AppError(
-          'CONTENT_DEPENDENCY_UNAVAILABLE',
-          `${parent.title} needs a dependency that is no longer on Modrinth.`
-        )
-      }
+      if (parent && isNotFound(err)) throw gone(parent.title)
       throw err
     }
     if (ctx.installedProjectIds.has(project.id)) {
@@ -117,14 +126,26 @@ export async function planInstall(
       return
     }
 
+    const candidates = await ctx.provider.versions(project.id, ctx.target, ctx.mcVersion)
     const version =
-      (await compatibleVersion(pinnedVersion, project.id)) ??
-      pickVersion(await ctx.client.versions(project.id, ctx.loaders, ctx.mcVersion))
+      (await compatibleVersion(pinned, project.id)) ?? pickVersion(candidates, ctx.includeBeta)
     if (!version) {
+      const external = candidates.find((v) => v.file.externalUrl)?.file.externalUrl ?? null
       if (parent) {
+        if (external) {
+          manual.push({ title: project.title, externalUrl: external, neededBy: parent.title })
+          return
+        }
         throw new AppError(
           'CONTENT_DEPENDENCY_UNAVAILABLE',
           `${parent.title} needs ${project.title}, which has no version for ${ctx.targetLabel}.`
+        )
+      }
+      if (external) {
+        throw new AppError(
+          'CONTENT_EXTERNAL_ONLY',
+          `${project.title} can't be downloaded by Blockhost. Get it from its page instead.`,
+          { externalUrl: external }
         )
       }
       throw new AppError(
@@ -133,31 +154,36 @@ export async function planInstall(
       )
     }
 
-    const file = primaryFile(version)
     const item: PlanItem = {
       projectId: project.id,
       versionId: version.id,
       title: project.title,
-      versionNumber: version.version_number,
+      versionNumber: version.versionNumber,
+      iconUrl: project.iconUrl,
       file: {
-        url: file.url,
-        filename: file.filename,
-        sha1: file.hashes.sha1,
-        sha512: file.hashes.sha512,
-        size: file.size
+        url: version.file.url!,
+        filename: version.file.filename,
+        sha1: version.file.sha1,
+        hash: version.file.hash,
+        size: version.file.size
       },
       dependencyOf: parent ? [parent.projectId] : []
     }
     items.push(item)
     byProject.set(project.id, item)
+    if (!parent) {
+      optional = version.dependencies
+        .filter((d) => d.kind === 'optional' && d.projectId)
+        .map((d) => d.projectId!)
+    }
 
     for (const dep of version.dependencies) {
       if (
-        dep.dependency_type === 'incompatible' &&
-        dep.project_id &&
-        ctx.installedProjectIds.has(dep.project_id)
+        dep.kind === 'incompatible' &&
+        dep.projectId &&
+        ctx.installedProjectIds.has(dep.projectId)
       ) {
-        const other = await ctx.client.project(dep.project_id)
+        const other = await ctx.provider.project(dep.projectId)
         throw new AppError(
           'CONTENT_CONFLICT',
           `${project.title} cannot be installed together with ${other.title}.`
@@ -165,26 +191,25 @@ export async function planInstall(
       }
     }
     for (const dep of version.dependencies) {
-      if (dep.dependency_type !== 'required') continue
-      let depProject = dep.project_id
-      if (!depProject && dep.version_id) {
+      if (dep.kind !== 'required') continue
+      let depProject = dep.projectId
+      if (!depProject && dep.versionId && ctx.provider.version) {
         try {
-          depProject = (await ctx.client.version(dep.version_id)).project_id
+          depProject = (await ctx.provider.version(dep.versionId)).projectId
         } catch (err) {
-          if (isNotFound(err)) {
-            throw new AppError(
-              'CONTENT_DEPENDENCY_UNAVAILABLE',
-              `${item.title} needs a dependency that is no longer on Modrinth.`
-            )
-          }
+          if (isNotFound(err)) throw gone(item.title)
           throw err
         }
       }
-      if (!depProject) continue
-      await visit(depProject, dep.version_id, item)
+      if (!depProject) {
+        if (dep.name)
+          manual.push({ title: dep.name, externalUrl: dep.externalUrl, neededBy: item.title })
+        continue
+      }
+      await visit(depProject, dep.versionId, item)
     }
   }
 
   await visit(projectIdOrSlug, versionId ?? null, null)
-  return { items, links }
+  return { items, links, manual, optional }
 }

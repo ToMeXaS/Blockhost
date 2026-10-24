@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ContentService } from '../content/service'
 import { createModrinthClient } from '../content/modrinth'
+import { modrinthProvider } from '../content/providers/modrinth'
 import { downloadFile } from '../net/download'
 import { ServerStore } from '../servers/store'
 import { tempDir } from '../test-utils'
@@ -32,7 +33,11 @@ describe('Modrinth (network)', () => {
     const service = new ContentService({
       store,
       processes: { status: () => 'stopped' },
-      client: createModrinthClient({ userAgent: 'Blockhost-tests (github.com/ToMeXaS/blockhost)' }),
+      providers: [
+        modrinthProvider(
+          createModrinthClient({ userAgent: 'Blockhost-tests (github.com/ToMeXaS/blockhost)' })
+        )
+      ],
       download: downloadFile
     })
 

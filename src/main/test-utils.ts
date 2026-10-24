@@ -5,6 +5,7 @@ import { AppError } from './errors'
 import type { RunJava } from './java/run'
 import type { HttpClient } from './net/http'
 import type { DownloadFn, DownloadOptions } from './net/download'
+import type { Manifest, ManifestEntry } from './content/manifest'
 import type { ProviderDeps, ProviderInstallOptions } from './providers/types'
 
 export function tempDir(): Promise<string> {
@@ -60,4 +61,26 @@ export function installOpts(dir: string, version: string, build?: string): Provi
     onLog: () => {},
     onProgress: () => {}
   }
+}
+
+export function manifestEntry(
+  e: Partial<ManifestEntry> & Pick<ManifestEntry, 'fileName' | 'projectId'>
+): ManifestEntry {
+  return {
+    source: 'modrinth',
+    versionId: `${e.projectId}-v`,
+    title: e.projectId,
+    versionNumber: '1',
+    iconUrl: null,
+    sha1: `sha1-${e.fileName}`,
+    dependencyOf: [],
+    disabled: false,
+    explicit: true,
+    installedAt: '2026-10-24T00:00:00.000Z',
+    ...e
+  }
+}
+
+export function manifestOf(entries: ManifestEntry[], includeBeta = false): Manifest {
+  return { version: 2, includeBeta, entries }
 }

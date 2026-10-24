@@ -4,10 +4,12 @@ import { readdir, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import {
+  CONTENT_SOURCE_LABELS,
   SERVER_TYPE_LABELS,
   type ContentInstallResult,
   type ContentSearchResult,
   type InstalledContent,
+  type ContentSource,
   type InstalledContentList,
   type ServerRecord
 } from '../../shared/types'
@@ -18,9 +20,15 @@ import type { ProcessManager } from '../servers/process'
 import type { ServerStore } from '../servers/store'
 import { pathExists } from '../util/fs'
 import { contentTarget, type ContentTarget } from './loaders'
-import { readManifest, writeManifest, type Manifest, type ManifestEntry } from './manifest'
-import type { ModrinthClient } from './modrinth'
-import { planInstall, type Plan } from './resolver'
+import {
+  entryKey,
+  readManifest,
+  writeManifest,
+  type Manifest,
+  type ManifestEntry
+} from './manifest'
+import { pickVersion, planInstall, type Plan } from './resolver'
+import type { ContentProvider, Version } from './types'
 
 const RESERVED_DEVICE_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i
 const FORBIDDEN_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
@@ -44,13 +52,11 @@ export async function sha1File(path: string): Promise<string> {
   return hash.digest('hex')
 }
 
-const DOWNLOAD_HOST = 'cdn.modrinth.com'
-
-function checkDownloadUrl(url: string, fileName: string): void {
+function checkDownloadUrl(url: string, fileName: string, hosts: string[]): void {
   let ok = false
   try {
     const u = new URL(url)
-    ok = u.protocol === 'https:' && u.hostname === DOWNLOAD_HOST
+    ok = u.protocol === 'https:' && hosts.includes(u.hostname)
   } catch {
     ok = false
   }
@@ -62,7 +68,7 @@ const errorMessage = (err: unknown): string => (err instanceof Error ? err.messa
 export interface ContentServiceDeps {
   store: Pick<ServerStore, 'get'>
   processes: Pick<ProcessManager, 'status'>
-  client: ModrinthClient
+  providers: ContentProvider[]
   download: DownloadFn
   hashFile?: (path: string) => Promise<string>
   /** File operations used when replacing and removing jars; defaults to node's. */
@@ -78,27 +84,51 @@ interface Ctx {
 
 export class ContentService {
   private readonly deps: ContentServiceDeps
+  private readonly providers: Map<ContentSource, ContentProvider>
   private readonly queues = new Map<string, Promise<unknown>>()
 
   constructor(deps: ContentServiceDeps) {
     this.deps = deps
+    this.providers = new Map(deps.providers.map((p) => [p.id, p]))
+  }
+
+  private provider(source: ContentSource): ContentProvider {
+    const p = this.providers.get(source)
+    if (!p) {
+      throw new AppError(
+        'CONTENT_NOT_SUPPORTED',
+        `${CONTENT_SOURCE_LABELS[source]} is not available.`
+      )
+    }
+    return p
   }
 
   /** Not queued: it only reads the manifest, so it must not wait behind a slow install. */
   async search(serverId: string, query: string, offset: number): Promise<ContentSearchResult> {
     const { rec, target } = this.ctx(serverId)
-    const installed = new Set((await readManifest(rec.dir)).entries.map((e) => e.projectId))
-    const r = await this.deps.client.search(target, rec.mcVersion, query, offset)
+    const manifest = await readManifest(rec.dir)
+    const installed = new Set(
+      manifest.entries.filter((e) => e.source === 'modrinth').map((e) => e.projectId)
+    )
+    const r = await this.provider('modrinth').search({
+      target,
+      mcVersion: rec.mcVersion,
+      text: query,
+      category: null,
+      sort: 'relevance',
+      offset,
+      limit: 20
+    })
     return {
       total: r.total,
       hits: r.hits.map((h) => ({
-        projectId: h.project_id,
+        projectId: h.projectId,
         slug: h.slug,
         title: h.title,
         description: h.description,
-        iconUrl: h.icon_url,
+        iconUrl: h.iconUrl,
         downloads: h.downloads,
-        installed: installed.has(h.project_id)
+        installed: installed.has(h.projectId)
       }))
     }
   }
@@ -112,7 +142,10 @@ export class ContentService {
       const shas = new Map<string, string>()
       for (const f of files) shas.set(f, await hashFile(join(folder, f)))
 
-      const known = manifest.entries.filter((e) => shas.get(e.fileName) === e.sha1)
+      // An empty stored sha1 (a source without sha1) counts as known; the computed hash fills it in.
+      const known = manifest.entries
+        .filter((e) => e.sha1 === '' || shas.get(e.fileName) === e.sha1)
+        .map((e) => (e.sha1 === '' ? { ...e, sha1: shas.get(e.fileName) ?? '' } : e))
       const knownNames = new Set(known.map((e) => e.fileName))
       const unknown = files.filter((f) => !knownNames.has(f))
       const entries = [...known]
@@ -120,22 +153,23 @@ export class ContentService {
 
       if (unknown.length) {
         try {
-          const found = await this.deps.client.identify(unknown.map((f) => shas.get(f)!))
-          const hits = unknown.filter((f) => found[shas.get(f)!])
-          const projects = await this.deps.client.projects([
-            ...new Set(hits.map((f) => found[shas.get(f)!].project_id))
-          ])
-          const titles = new Map(projects.map((p) => [p.id, p.title]))
-          for (const f of hits) {
+          const found = await this.provider('modrinth').identify!(unknown.map((f) => shas.get(f)!))
+          for (const f of unknown) {
             const v = found[shas.get(f)!]
+            if (!v) continue
             entries.push({
               fileName: f,
-              projectId: v.project_id,
-              versionId: v.id,
-              title: titles.get(v.project_id) ?? f,
-              versionNumber: v.version_number,
+              source: 'modrinth',
+              projectId: v.projectId,
+              versionId: v.versionId,
+              title: v.title,
+              versionNumber: v.versionNumber,
+              iconUrl: v.iconUrl,
               sha1: shas.get(f)!,
-              dependencyOf: []
+              dependencyOf: [],
+              disabled: false,
+              explicit: true,
+              installedAt: new Date().toISOString()
             })
           }
         } catch (err) {
@@ -145,15 +179,17 @@ export class ContentService {
       }
 
       if (!sameEntries(entries, manifest.entries))
-        await writeManifest(rec.dir, { version: 1, entries })
+        await writeManifest(rec.dir, { ...manifest, entries })
 
-      let updates: Record<string, { id: string; version_number: string }> = {}
-      if (!offline && entries.length) {
+      let updates: Record<string, Version> = {}
+      const mr = entries.filter((e) => e.source === 'modrinth')
+      if (!offline && mr.length) {
         try {
-          updates = await this.deps.client.latest(
-            entries.map((e) => e.sha1),
-            target.loaders,
-            rec.mcVersion
+          updates = await this.provider('modrinth').latest!(
+            mr.map((e) => e.sha1),
+            target,
+            rec.mcVersion,
+            manifest.includeBeta
           )
         } catch (err) {
           if (!isSourceDown(err)) throw err
@@ -162,7 +198,7 @@ export class ContentService {
       }
 
       const byName = new Map(entries.map((e) => [e.fileName, e]))
-      const titleOf = new Map(entries.map((e) => [e.projectId, e.title]))
+      const titleOf = new Map(entries.map((e) => [entryKey(e), e.title]))
       const items: InstalledContent[] = files.map((f) => {
         const e = byName.get(f)
         if (!e)
@@ -172,12 +208,12 @@ export class ContentService {
           fileName: f,
           title: e.title,
           versionNumber: e.versionNumber,
-          source: 'modrinth',
+          source: e.source,
           projectId: e.projectId,
           ...(u && u.id !== e.versionId
-            ? { update: { versionId: u.id, versionNumber: u.version_number } }
+            ? { update: { versionId: u.id, versionNumber: u.versionNumber } }
             : {}),
-          neededBy: e.dependencyOf.filter((p) => titleOf.has(p)).map((p) => titleOf.get(p)!)
+          neededBy: e.dependencyOf.filter((k) => titleOf.has(k)).map((k) => titleOf.get(k)!)
         }
       })
       items.sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()))
@@ -189,8 +225,9 @@ export class ContentService {
     return this.serial(serverId, async () => {
       const c = this.ctx(serverId)
       const manifest = await readManifest(c.rec.dir)
-      const plan = await this.plan(c, manifest, projectIdOrSlug)
-      const wrote = await this.apply(c, manifest, plan, null)
+      const provider = this.provider('modrinth')
+      const plan = await this.planFor(c, provider, manifest, projectIdOrSlug)
+      const wrote = await this.apply(c, provider, manifest, plan, null)
       return this.result(c, plan, wrote)
     })
   }
@@ -208,30 +245,28 @@ export class ContentService {
           `${name} was not installed from Modrinth, so Blockhost cannot update it.`
         )
       }
-      const latest = (
-        await this.deps.client.latest([entry.sha1], c.target.loaders, c.rec.mcVersion)
-      )[entry.sha1]
-      if (!latest || latest.id === entry.versionId) return { installed: [], restartNeeded: false }
+      const provider = this.provider(entry.source)
+      const latest = await this.newestFor(c, provider, entry, manifest.includeBeta)
+      if (!latest) return { installed: [], restartNeeded: false }
 
       // Exclude every manifest entry for this project (not just the one being updated) so the
       // resolver doesn't mistake the project for already installed and skip it entirely.
       const forPlan: Manifest = {
-        version: 1,
-        entries: manifest.entries.filter((e) => e.projectId !== entry.projectId)
+        ...manifest,
+        entries: manifest.entries.filter((e) => entryKey(e) !== entryKey(entry))
       }
-      const plan = await this.plan(c, forPlan, entry.projectId, latest.id)
+      const plan = await this.planFor(c, provider, forPlan, entry.projectId, latest.id)
       if (plan.items[0]?.projectId !== entry.projectId) {
         throw new AppError(
           'CONTENT_NO_COMPATIBLE_VERSION',
           `No compatible update was found for ${entry.title}.`
         )
       }
-      plan.items[0].dependencyOf = entry.dependencyOf
 
       // Only drop the entry being replaced, so a duplicate entry for the same project
       // (e.g. a second jar for the same mod) is left alone.
-      const base: Manifest = { version: 1, entries: manifest.entries.filter((e) => e !== entry) }
-      const wrote = await this.apply(c, base, plan, entry)
+      const base: Manifest = { ...manifest, entries: manifest.entries.filter((e) => e !== entry) }
+      const wrote = await this.apply(c, provider, base, plan, entry)
       return this.result(c, plan, wrote)
     })
   }
@@ -245,7 +280,7 @@ export class ContentService {
       const manifest = await readManifest(c.rec.dir)
       const entries = manifest.entries.filter((e) => e.fileName !== name)
       if (entries.length !== manifest.entries.length)
-        await writeManifest(c.rec.dir, { version: 1, entries })
+        await writeManifest(c.rec.dir, { ...manifest, entries })
     })
   }
 
@@ -276,8 +311,9 @@ export class ContentService {
     }
   }
 
-  private plan(
+  private planFor(
     c: Ctx,
+    provider: ContentProvider,
     manifest: Manifest,
     projectIdOrSlug: string,
     versionId?: string
@@ -285,14 +321,38 @@ export class ContentService {
     return planInstall(
       projectIdOrSlug,
       {
-        client: this.deps.client,
-        loaders: c.target.loaders,
+        provider,
+        target: c.target,
         mcVersion: c.rec.mcVersion,
-        installedProjectIds: new Set(manifest.entries.map((e) => e.projectId)),
+        installedProjectIds: new Set(
+          manifest.entries.filter((e) => e.source === provider.id).map((e) => e.projectId)
+        ),
+        includeBeta: manifest.includeBeta,
         targetLabel: c.label
       },
       versionId
     )
+  }
+
+  /** Newest compatible version for one entry, or null when it is current/unknown. */
+  private async newestFor(
+    c: Ctx,
+    provider: ContentProvider,
+    entry: ManifestEntry,
+    includeBeta: boolean
+  ): Promise<Version | null> {
+    let v: Version | null
+    if (provider.latest) {
+      v =
+        (await provider.latest([entry.sha1], c.target, c.rec.mcVersion, includeBeta))[entry.sha1] ??
+        null
+    } else {
+      v = pickVersion(
+        await provider.versions(entry.projectId, c.target, c.rec.mcVersion),
+        includeBeta
+      )
+    }
+    return v && v.id !== entry.versionId ? v : null
   }
 
   /**
@@ -308,6 +368,7 @@ export class ContentService {
    */
   private async apply(
     c: Ctx,
+    provider: ContentProvider,
     manifest: Manifest,
     { items: plan, links }: Plan,
     replacing: ManifestEntry | null
@@ -315,7 +376,7 @@ export class ContentService {
     if (plan.length === 0) return false
     const fs = { rename: this.deps.fsOps?.rename ?? rename, rm: this.deps.fsOps?.rm ?? rm }
     const names = plan.map((item) => safeFileName(item.file.filename))
-    plan.forEach((item, i) => checkDownloadUrl(item.file.url, names[i]))
+    plan.forEach((item, i) => checkDownloadUrl(item.file.url, names[i], provider.downloadHosts))
     const rootName = names[0]
     const rootDest = join(c.folder, rootName)
     const tempDest = `${rootDest}.blockhost-update`
@@ -332,7 +393,8 @@ export class ContentService {
         await this.deps.download({
           url: plan[i].file.url,
           dest,
-          hash: { algo: 'sha512', value: plan[i].file.sha512 }
+          hash: plan[i].file.hash ?? undefined,
+          allowedHosts: provider.downloadHosts
         })
         created.push(dest)
       }
@@ -342,7 +404,8 @@ export class ContentService {
         await this.deps.download({
           url: plan[0].file.url,
           dest: tempDest,
-          hash: { algo: 'sha512', value: plan[0].file.sha512 }
+          hash: plan[0].file.hash ?? undefined,
+          allowedHosts: provider.downloadHosts
         })
         created.push(tempDest)
         // The server may have started while these downloads were in flight; re-check right
@@ -352,7 +415,8 @@ export class ContentService {
         await this.deps.download({
           url: plan[0].file.url,
           dest: rootDest,
-          hash: { algo: 'sha512', value: plan[0].file.sha512 }
+          hash: plan[0].file.hash ?? undefined,
+          allowedHosts: provider.downloadHosts
         })
         created.push(rootDest)
       }
@@ -388,28 +452,36 @@ export class ContentService {
       }
     }
 
+    const key = (projectId: string): string => `${provider.id}:${projectId}`
     const entries = manifest.entries
       .filter((e) => !names.includes(e.fileName))
       .map((e) => {
+        if (e.source !== provider.id) return e
         const parents = links
-          .filter((l) => l.projectId === e.projectId && !e.dependencyOf.includes(l.parentId))
-          .map((l) => l.parentId)
+          .filter((l) => l.projectId === e.projectId && !e.dependencyOf.includes(key(l.parentId)))
+          .map((l) => key(l.parentId))
         return parents.length
           ? { ...e, dependencyOf: [...new Set([...e.dependencyOf, ...parents])] }
           : e
       })
+    const now = new Date().toISOString()
     plan.forEach((item, i) =>
       entries.push({
         fileName: names[i],
+        source: provider.id,
         projectId: item.projectId,
         versionId: item.versionId,
         title: item.title,
         versionNumber: item.versionNumber,
-        sha1: item.file.sha1,
-        dependencyOf: item.dependencyOf
+        iconUrl: item.iconUrl,
+        sha1: item.file.sha1 ?? '',
+        dependencyOf: i === 0 && replacing ? replacing.dependencyOf : item.dependencyOf.map(key),
+        disabled: false,
+        explicit: i === 0 ? (replacing ? replacing.explicit : true) : false,
+        installedAt: i === 0 && replacing ? replacing.installedAt : now
       })
     )
-    await writeManifest(c.rec.dir, { version: 1, entries })
+    await writeManifest(c.rec.dir, { ...manifest, entries })
     if (oldFileError) {
       throw new AppError(
         'CONTENT_IO',

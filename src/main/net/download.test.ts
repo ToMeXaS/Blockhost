@@ -76,4 +76,40 @@ describe('downloadFile', () => {
       downloadFile({ url: `${base}/missing`, dest, retries: 1, retryDelayMs: 1 })
     ).rejects.toMatchObject({ code: 'HTTP' })
   })
+
+  it('refuses a download whose final URL is on another host, without retrying', async () => {
+    const dir = await tempDir()
+    let calls = 0
+    const fetchImpl = (async () => {
+      calls++
+      const res = new Response('PKdata')
+      Object.defineProperty(res, 'url', { value: 'https://evil.example/x.jar' })
+      return res
+    }) as unknown as typeof fetch
+    await expect(
+      downloadFile({
+        url: 'https://cdn.modrinth.com/x.jar',
+        dest: join(dir, 'x.jar'),
+        allowedHosts: ['cdn.modrinth.com'],
+        fetchImpl,
+        retryDelayMs: 1
+      })
+    ).rejects.toMatchObject({ code: 'DOWNLOAD_BLOCKED' })
+    expect(calls).toBe(1)
+  })
+
+  it('accepts a redirect to an allowed host', async () => {
+    const dir = await tempDir()
+    const fetchImpl = (async () => {
+      const res = new Response('jar')
+      Object.defineProperty(res, 'url', { value: 'https://cdn.spiget.org/file/1.jar' })
+      return res
+    }) as unknown as typeof fetch
+    await downloadFile({
+      url: 'https://api.spiget.org/v2/resources/1/download',
+      dest: join(dir, '1.jar'),
+      allowedHosts: ['api.spiget.org', 'cdn.spiget.org'],
+      fetchImpl
+    })
+  })
 })

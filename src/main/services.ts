@@ -7,6 +7,7 @@ import { BackupService } from './backups/service'
 import { JsonCache } from './cache'
 import { folderBytes } from './disk/usage'
 import { createModrinthClient } from './content/modrinth'
+import { modrinthProvider } from './content/providers/modrinth'
 import { ContentService } from './content/service'
 import { probeJava } from './java/detect'
 import { extractZip } from './java/extract'
@@ -150,9 +151,13 @@ export async function createServices(opts: {
   const content = new ContentService({
     store,
     processes,
-    client: createModrinthClient({
-      userAgent: `Blockhost/${appVersion} (github.com/ToMeXaS/blockhost)`
-    }),
+    providers: [
+      modrinthProvider(
+        createModrinthClient({
+          userAgent: `Blockhost/${appVersion} (github.com/ToMeXaS/blockhost)`
+        })
+      )
+    ],
     download: downloadFile
   })
   const backups = new BackupService({

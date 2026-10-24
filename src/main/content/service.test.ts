@@ -5,9 +5,10 @@ import type { ServerStatus, ServerType } from '../../shared/types'
 import { AppError } from '../errors'
 import type { DownloadOptions } from '../net/download'
 import { ServerStore } from '../servers/store'
-import { tempDir } from '../test-utils'
+import { manifestEntry, manifestOf, tempDir } from '../test-utils'
 import { readManifest, writeManifest } from './manifest'
 import type { ModrinthClient, ModrinthProject, ModrinthVersion } from './modrinth'
+import { modrinthProvider } from './providers/modrinth'
 import { ContentService, safeFileName } from './service'
 
 const ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -133,7 +134,7 @@ async function setup(
   const service = new ContentService({
     store,
     processes,
-    client,
+    providers: [modrinthProvider(client)],
     download,
     hashFile: async (p) => hashes[basename(p)] ?? `unknown-${basename(p)}`,
     fsOps: opts.fsOps
@@ -175,10 +176,10 @@ describe('ContentService', () => {
 
   it('searches and marks installed projects', async () => {
     const { service, dir, client } = await setup()
-    await writeManifest(dir, {
-      version: 1,
-      entries: [
-        {
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
           fileName: 'fabric-api-1.jar',
           projectId: API.id,
           versionId: 'a1',
@@ -186,15 +187,16 @@ describe('ContentService', () => {
           versionNumber: '1',
           sha1: 'x',
           dependencyOf: []
-        }
-      ]
-    })
+        })
+      ])
+    )
     const r = await service.search(ID, 'sod', 20)
     expect(client.search).toHaveBeenCalledWith(
       expect.objectContaining({ folder: 'mods' }),
       '1.21.4',
       'sod',
-      20
+      20,
+      { index: 'relevance', categories: undefined }
     )
     expect(r).toEqual({
       total: 2,
@@ -238,7 +240,7 @@ describe('ContentService', () => {
       ['sodium-1.jar', { algo: 'sha512', value: 'sha512-s1' }]
     ])
     expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-1.jar'])
-    expect((await readManifest(dir)).entries).toEqual([
+    expect((await readManifest(dir)).entries).toMatchObject([
       {
         fileName: 'sodium-1.jar',
         projectId: SODIUM.id,
@@ -255,7 +257,7 @@ describe('ContentService', () => {
         title: 'Fabric API',
         versionNumber: 'a1-num',
         sha1: 'sha1-a1',
-        dependencyOf: [SODIUM.id]
+        dependencyOf: [`modrinth:${SODIUM.id}`]
       }
     ])
   })
@@ -303,10 +305,10 @@ describe('ContentService', () => {
       await writeFile(join(mods, f), 'x')
     hashes['sodium-1.jar'] = 'sha1-s1'
     hashes['api-by-hand.jar'] = 'sha1-a1'
-    await writeManifest(dir, {
-      version: 1,
-      entries: [
-        {
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
           fileName: 'sodium-1.jar',
           projectId: SODIUM.id,
           versionId: 's1',
@@ -314,8 +316,8 @@ describe('ContentService', () => {
           versionNumber: 's1-num',
           sha1: 'sha1-s1',
           dependencyOf: []
-        },
-        {
+        }),
+        manifestEntry({
           fileName: 'gone.jar',
           projectId: 'GONEGONE',
           versionId: 'g',
@@ -323,9 +325,9 @@ describe('ContentService', () => {
           versionNumber: 'g',
           sha1: 'g',
           dependencyOf: []
-        }
-      ]
-    })
+        })
+      ])
+    )
     client.identify.mockResolvedValueOnce({ 'sha1-a1': ver('a1', API.id, 'fabric-api-1.jar') })
     client.latest.mockResolvedValueOnce({ 'sha1-s1': ver('s2', SODIUM.id, 'sodium-2.jar') })
 
@@ -518,13 +520,13 @@ describe('ContentService update safety (fix round 1)', () => {
     await writeFile(join(mods, 'sodium-copy.jar'), 'copy')
     const manifest = await readManifest(dir)
     const sodiumEntry = manifest.entries.find((e) => e.projectId === SODIUM.id)!
-    await writeManifest(dir, {
-      version: 1,
-      entries: [
+    await writeManifest(
+      dir,
+      manifestOf([
         ...manifest.entries,
         { ...sodiumEntry, fileName: 'sodium-copy.jar', sha1: 'copy-sha' }
-      ]
-    })
+      ])
+    )
 
     const s2 = ver('s2', SODIUM.id, 'sodium-2.jar', [API.id])
     versions.push(s2)
@@ -791,5 +793,49 @@ describe('ContentService final review fixes', () => {
       })
       expect(download).not.toHaveBeenCalled()
     }
+  })
+})
+
+describe('ContentService providers and v2 manifest', () => {
+  it('restricts downloads to the provider hosts and records explicit installs', async () => {
+    const { service, dir, downloads } = await setup()
+    await service.install(ID, 'sodium')
+    expect(downloads.every((d) => d.allowedHosts?.join() === 'cdn.modrinth.com')).toBe(true)
+    const entries = (await readManifest(dir)).entries
+    expect(entries.map((e) => [e.fileName, e.explicit, e.source])).toEqual([
+      ['sodium-1.jar', true, 'modrinth'],
+      ['fabric-api-1.jar', false, 'modrinth']
+    ])
+  })
+
+  it('keeps explicit and installedAt on update', async () => {
+    const { service, dir, mods, versions, client, hashes } = await setup()
+    await service.install(ID, 'sodium')
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    const before = (await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)!
+    versions.push(ver('s2', SODIUM.id, 'sodium-2.jar', [API.id]))
+    client.latest.mockResolvedValueOnce({ 'sha1-s1': versions.at(-1)! })
+    await service.update(ID, 'sodium-1.jar')
+    const after = (await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)!
+    expect(after).toMatchObject({
+      fileName: 'sodium-2.jar',
+      versionId: 's2',
+      explicit: before.explicit,
+      installedAt: before.installedAt
+    })
+    expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-2.jar'])
+  })
+
+  it('fills in an empty stored sha1 from the file on disk', async () => {
+    const { service, dir, mods, hashes } = await setup()
+    await mkdir(mods)
+    await writeFile(join(mods, 'sodium-1.jar'), 'x')
+    hashes['sodium-1.jar'] = 'computed'
+    await writeManifest(
+      dir,
+      manifestOf([manifestEntry({ fileName: 'sodium-1.jar', projectId: SODIUM.id, sha1: '' })])
+    )
+    await service.listInstalled(ID)
+    expect((await readManifest(dir)).entries[0].sha1).toBe('computed')
   })
 })

@@ -18,6 +18,8 @@ export interface DownloadOptions {
   retries?: number
   retryDelayMs?: number
   fetchImpl?: typeof fetch
+  /** When set, the final URL (after redirects) must be on one of these hosts. */
+  allowedHosts?: string[]
 }
 
 export type DownloadFn = (opts: DownloadOptions) => Promise<void>
@@ -36,6 +38,7 @@ export const downloadFile: DownloadFn = async (opts) => {
     } catch (err) {
       lastError = err
       await rm(`${opts.dest}.part`, { force: true })
+      if (err instanceof AppError && err.code === 'DOWNLOAD_BLOCKED') throw err
     }
   }
   if (lastError instanceof AppError) throw lastError
@@ -52,6 +55,23 @@ async function attemptDownload(opts: DownloadOptions): Promise<void> {
   }
   if (!res.ok || !res.body) {
     throw new AppError('HTTP', `Download of ${opts.url} failed with HTTP ${res.status}`)
+  }
+
+  if (opts.allowedHosts) {
+    const finalUrl = res.url || opts.url
+    let ok = false
+    try {
+      const u = new URL(finalUrl)
+      ok = u.protocol === 'https:' && opts.allowedHosts.includes(u.hostname)
+    } catch {
+      ok = false
+    }
+    if (!ok) {
+      throw new AppError(
+        'DOWNLOAD_BLOCKED',
+        `Refusing to download ${basename(opts.dest)} from ${finalUrl}`
+      )
+    }
   }
 
   const total = Number(res.headers.get('content-length')) || undefined

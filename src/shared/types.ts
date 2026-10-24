@@ -304,7 +304,7 @@ export interface InstalledContent {
   fileName: string
   title: string
   versionNumber: string | null
-  source: 'modrinth' | 'manual'
+  source: ContentSource | 'manual'
   projectId?: string
   update?: { versionId: string; versionNumber: string }
   /** Titles of installed content that pulled this in as a dependency. */
