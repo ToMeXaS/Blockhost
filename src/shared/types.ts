@@ -151,7 +151,8 @@ export interface ConfigEdit {
   value: ConfigValue
 }
 
-export type ConfigFileChange = { mode: 'values'; edits: ConfigEdit[] } | { mode: 'raw'; text: string }
+export type ConfigFileChange =
+  { mode: 'values'; edits: ConfigEdit[] } | { mode: 'raw'; text: string }
 
 export interface SystemInfo {
   totalRamMb: number

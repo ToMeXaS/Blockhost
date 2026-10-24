@@ -112,9 +112,7 @@ const configValueSchema = z.union([
 export const configChangeSchema = z.discriminatedUnion('mode', [
   z.strictObject({
     mode: z.literal('values'),
-    edits: z
-      .array(z.strictObject({ path: configPathSchema, value: configValueSchema }))
-      .max(2000)
+    edits: z.array(z.strictObject({ path: configPathSchema, value: configValueSchema })).max(2000)
   }),
   z.strictObject({ mode: z.literal('raw'), text: z.string().max(2_000_000) })
 ])

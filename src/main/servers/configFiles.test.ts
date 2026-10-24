@@ -2,7 +2,13 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { tempDir } from '../test-utils'
-import { applyEdits, flattenYaml, listConfigFiles, readConfigFile, writeConfigFile } from './configFiles'
+import {
+  applyEdits,
+  flattenYaml,
+  listConfigFiles,
+  readConfigFile,
+  writeConfigFile
+} from './configFiles'
 
 const SAMPLE = [
   '# header comment',
@@ -18,7 +24,7 @@ const SAMPLE = [
   '  list:',
   '  - a',
   '  - b',
-  '  flow: [x, y]',
+  '  flow: [x, w]',
   '  objects:',
   '  - name: x',
   'spawn-limits:',
@@ -43,12 +49,22 @@ describe('flattenYaml', () => {
       { path: ['settings', 'name'], kind: 'string', value: 'hi', comment: undefined },
       { path: ['settings', 'empty'], kind: 'complex', value: '', comment: undefined },
       { path: ['settings', 'list'], kind: 'list', value: ['a', 'b'], comment: undefined },
-      { path: ['settings', 'flow'], kind: 'list', value: ['x', 'y'], comment: undefined },
+      { path: ['settings', 'flow'], kind: 'list', value: ['x', 'w'], comment: undefined },
       { path: ['settings', 'objects'], kind: 'complex', value: '- name: x\n', comment: undefined },
       { path: ['spawn-limits'], kind: 'map', comment: undefined },
-      { path: ['spawn-limits', 'monsters'], kind: 'number', value: 70, source: '70', comment: undefined },
+      {
+        path: ['spawn-limits', 'monsters'],
+        kind: 'number',
+        value: 70,
+        source: '70',
+        comment: undefined
+      },
       { path: ['top'], kind: 'string', value: 'plain', comment: undefined }
     ])
+  })
+
+  it('reads YAML 1.1 booleans', () => {
+    expect(flattenYaml('a: on\n')[0]).toMatchObject({ kind: 'bool', value: true })
   })
 
   it('stringifies numeric keys', () => {
@@ -119,7 +135,9 @@ describe('applyEdits', () => {
   })
 
   it('keeps a float a float', () => {
-    expect(applyEdits(SAMPLE, [{ path: ['settings', 'ratio'], value: 3 }])).toContain('ratio: 3.0\n')
+    expect(applyEdits(SAMPLE, [{ path: ['settings', 'ratio'], value: 3 }])).toContain(
+      'ratio: 3.0\n'
+    )
   })
 
   it('rewrites block and flow lists in place', () => {
@@ -138,29 +156,36 @@ describe('applyEdits', () => {
     expect(flattenYaml(out)[0]).toMatchObject({ kind: 'string', value: 'true' })
   })
 
+  it.each(['yes', 'No', 'on', '1:20'])(
+    'quotes %s so a YAML 1.1 reader keeps it a string',
+    (word) => {
+      const out = applyEdits('a: x\n', [{ path: ['a'], value: word }])
+      expect(out).toMatch(/^a: ['"]/)
+      expect(flattenYaml(out)[0]).toMatchObject({ kind: 'string', value: word })
+    }
+  )
+
   it('keeps CRLF line endings when rewriting a block list', () => {
     const crlf = 'l:\r\n- a\r\nn: 1\r\n'
-    expect(applyEdits(crlf, [{ path: ['l'], value: ['b', 'c'] }])).toBe('l:\r\n- b\r\n- c\r\nn: 1\r\n')
+    expect(applyEdits(crlf, [{ path: ['l'], value: ['b', 'c'] }])).toBe(
+      'l:\r\n- b\r\n- c\r\nn: 1\r\n'
+    )
   })
 
   it('refuses unknown paths, maps, complex values and type changes', () => {
     expect(() => applyEdits(SAMPLE, [{ path: ['nope'], value: 1 }])).toThrow(/No setting/)
     expect(() => applyEdits(SAMPLE, [{ path: ['settings'], value: 1 }])).toThrow(/No setting/)
-    expect(() => applyEdits(SAMPLE, [{ path: ['settings', 'objects'], value: 'x' }])).toThrow(
-      /Raw/
-    )
-    expect(() => applyEdits(SAMPLE, [{ path: ['settings', 'ratio'], value: 'x' }])).toThrow(
-      /type/
-    )
+    expect(() => applyEdits(SAMPLE, [{ path: ['settings', 'objects'], value: 'x' }])).toThrow(/Raw/)
+    expect(() => applyEdits(SAMPLE, [{ path: ['settings', 'ratio'], value: 'x' }])).toThrow(/type/)
   })
 
   it('quotes flow-list items that contain flow indicators', () => {
-    const out = applyEdits('f: [x, y]\n',[{ path: ['f'], value: ['a, b', 'c'] }])
+    const out = applyEdits('f: [x, w]\n', [{ path: ['f'], value: ['a, b', 'c'] }])
     expect(flattenYaml(out)[0]).toMatchObject({ kind: 'list', value: ['a, b', 'c'] })
   })
 
   it('fills an empty flow list', () => {
-    const out = applyEdits('f: []\n',[{ path: ['f'], value: ['x'] }])
+    const out = applyEdits('f: []\n', [{ path: ['f'], value: ['x'] }])
     expect(flattenYaml(out)[0]).toMatchObject({ kind: 'list', value: ['x'] })
   })
 
@@ -194,6 +219,13 @@ describe('writeConfigFile', () => {
     await writeFile(join(dir, 'bukkit.yml'), SAMPLE)
     await writeConfigFile(dir, 'bukkit', { mode: 'raw', text: '# new\na: 1\n' })
     expect(await readFile(join(dir, 'bukkit.yml'), 'utf8')).toBe('# new\na: 1\n')
+  })
+
+  it('keeps CRLF line endings when raw text is written over a CRLF file', async () => {
+    const dir = await tempDir()
+    await writeFile(join(dir, 'bukkit.yml'), 'a: 1\r\nb: 2\r\n')
+    await writeConfigFile(dir, 'bukkit', { mode: 'raw', text: 'a: 1\nb: 3\n' })
+    expect(await readFile(join(dir, 'bukkit.yml'), 'utf8')).toBe('a: 1\r\nb: 3\r\n')
   })
 
   it('refuses invalid raw YAML and leaves the file alone', async () => {

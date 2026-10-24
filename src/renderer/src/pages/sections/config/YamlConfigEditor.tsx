@@ -49,12 +49,13 @@ export function YamlConfigEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [server.id, file.id])
 
-  const rawDirty = content !== null && raw !== content.text
+  const eolless = (t: string): string => t.replace(/\r\n/g, '\n')
+  const rawDirty = content !== null && eolless(raw) !== eolless(content.text)
   const changes = mode === 'form' ? edits.size : rawDirty ? 1 : 0
   useEffect(() => onDirtyChange(changes), [changes, onDirtyChange])
 
   const rawError = useMemo(
-    () => (mode === 'raw' ? parseDocument(raw).errors[0]?.message : undefined),
+    () => (mode === 'raw' ? parseDocument(raw, { version: '1.1' }).errors[0]?.message : undefined),
     [mode, raw]
   )
   const sections = useMemo(
@@ -67,7 +68,8 @@ export function YamlConfigEditor({
   function edit(node: ConfigNode, value: ConfigValue) {
     setEdits((prev) => {
       const next = new Map(prev)
-      if (JSON.stringify(value) === JSON.stringify(node.value)) next.delete(pathKey(node.path))
+      const compare = Array.isArray(value) ? value.filter((item) => item.trim() !== '') : value
+      if (JSON.stringify(compare) === JSON.stringify(node.value)) next.delete(pathKey(node.path))
       else next.set(pathKey(node.path), value)
       return next
     })
@@ -135,6 +137,7 @@ export function YamlConfigEditor({
           spellCheck={false}
           aria-label={`${file.label} contents`}
           value={raw}
+          disabled={saving}
           onChange={(e) => setRaw(e.target.value)}
         />
         <ConfigSaveBar
@@ -167,44 +170,46 @@ export function YamlConfigEditor({
             {query ? `No settings match “${query}”.` : 'This file has no settings.'}
           </p>
         )}
-        {sections.map((section) => (
-          <section key={section.id} id={anchor(section.id)} className="scroll-mt-4">
-            <Card
-              title={<span className="font-mono">{section.label}</span>}
-              description={section.description}
-            >
-              {section.groups.map((group) =>
-                group.parent === '' ? (
-                  <NodeList
-                    key="direct"
-                    nodes={group.nodes}
-                    edits={edits}
-                    onEdit={edit}
-                    onRaw={() => canSwitch && setMode('raw')}
-                  />
-                ) : (
-                  <details
-                    key={`${group.parent}:${query ? 'q' : ''}`}
-                    open={!!query}
-                    className="group border-t border-border-soft first:border-t-0"
-                  >
-                    <summary className="cursor-pointer py-2.5 font-mono text-xs text-text-2 hover:text-text">
-                      {group.parent} <span className="text-faint">({group.nodes.length})</span>
-                    </summary>
-                    <div className="pl-4">
-                      <NodeList
-                        nodes={group.nodes}
-                        edits={edits}
-                        onEdit={edit}
-                        onRaw={() => canSwitch && setMode('raw')}
-                      />
-                    </div>
-                  </details>
-                )
-              )}
-            </Card>
-          </section>
-        ))}
+        <fieldset disabled={saving} className="m-0 min-w-0 space-y-4 border-0 p-0">
+          {sections.map((section) => (
+            <section key={section.id} id={anchor(section.id)} className="scroll-mt-4">
+              <Card
+                title={<span className="font-mono">{section.label}</span>}
+                description={section.description}
+              >
+                {section.groups.map((group) =>
+                  group.parent === '' ? (
+                    <NodeList
+                      key="direct"
+                      nodes={group.nodes}
+                      edits={edits}
+                      onEdit={edit}
+                      onRaw={canSwitch ? () => setMode('raw') : undefined}
+                    />
+                  ) : (
+                    <details
+                      key={`${group.parent}:${query ? 'q' : ''}`}
+                      open={!!query}
+                      className="group border-t border-border-soft first:border-t-0"
+                    >
+                      <summary className="cursor-pointer py-2.5 font-mono text-xs text-text-2 hover:text-text">
+                        {group.parent} <span className="text-faint">({group.nodes.length})</span>
+                      </summary>
+                      <div className="pl-4">
+                        <NodeList
+                          nodes={group.nodes}
+                          edits={edits}
+                          onEdit={edit}
+                          onRaw={canSwitch ? () => setMode('raw') : undefined}
+                        />
+                      </div>
+                    </details>
+                  )
+                )}
+              </Card>
+            </section>
+          ))}
+        </fieldset>
         <ConfigSaveBar
           count={changes}
           saving={saving}
@@ -225,7 +230,7 @@ function NodeList({
   nodes: ConfigNode[]
   edits: Map<string, ConfigValue>
   onEdit: (node: ConfigNode, value: ConfigValue) => void
-  onRaw: () => void
+  onRaw?: () => void
 }) {
   return (
     <div className="divide-y divide-border-soft">
@@ -273,7 +278,7 @@ function ValueInput({
   node: ConfigNode
   value: ConfigValue | undefined
   onChange: (value: ConfigValue) => void
-  onRaw: () => void
+  onRaw?: () => void
 }) {
   const label = node.path.join('.')
   switch (node.kind) {
@@ -317,7 +322,11 @@ function ValueInput({
           <pre className="max-h-40 overflow-auto rounded-btn border border-border-soft bg-panel-2 p-2 font-mono text-xs text-text-2">
             {String(value ?? '') || '(empty)'}
           </pre>
-          <TextLink onClick={onRaw}>Edit in Raw</TextLink>
+          {onRaw ? (
+            <TextLink onClick={onRaw}>Edit in Raw</TextLink>
+          ) : (
+            <span className="text-xs text-faint">Edit in Raw (save or discard first)</span>
+          )}
         </div>
       )
   }

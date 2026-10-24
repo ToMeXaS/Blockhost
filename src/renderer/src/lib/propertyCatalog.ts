@@ -242,8 +242,8 @@ export const PROPERTY_CATALOG: PropertyDef[] = [
     'Operator level',
     'players',
     4,
-    'Default permission level for /op (1–4).',
-    { min: 1, max: 4 }
+    'Default permission level for /op (0–4).',
+    { min: 0, max: 4 }
   ),
   num(
     'function-permission-level',

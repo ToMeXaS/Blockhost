@@ -1,6 +1,15 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { isMap, isScalar, isSeq, parseDocument, stringify, type Document, type YAMLMap, type YAMLSeq } from 'yaml'
+import {
+  isMap,
+  isScalar,
+  isSeq,
+  parseDocument,
+  stringify,
+  type Document,
+  type YAMLMap,
+  type YAMLSeq
+} from 'yaml'
 import {
   CONFIG_FILE_IDS,
   type ConfigEdit,
@@ -25,6 +34,9 @@ const FILES: Record<ConfigFileId, string> = {
   purpur: 'purpur.yml',
   pufferfish: 'pufferfish.yml'
 }
+
+/** Bukkit-family servers read these files with SnakeYAML (YAML 1.1). */
+const YAML11 = { version: '1.1' } as const
 
 type Range = [number, number, number]
 
@@ -82,7 +94,10 @@ export function describeLeaf(node: unknown, text: string): Omit<ConfigNode, 'pat
         !item.comment
     )
   ) {
-    return { kind: 'list', value: node.items.map((item) => String((item as { value: string }).value)) }
+    return {
+      kind: 'list',
+      value: node.items.map((item) => String((item as { value: string }).value))
+    }
   }
   const range = (node as { range?: Range } | null)?.range
   return { kind: 'complex', value: range ? text.slice(range[0], range[1]) : '' }
@@ -106,14 +121,14 @@ function walkMap(map: YAMLMap, parent: string[], text: string, out: ConfigNode[]
 }
 
 export function flattenYaml(text: string): ConfigNode[] {
-  const doc = parseDocument(text)
+  const doc = parseDocument(text, YAML11)
   const out: ConfigNode[] = []
   if (isMap(doc.contents)) walkMap(doc.contents, [], text, out)
   return out
 }
 
 export function yamlError(text: string): string | undefined {
-  return parseDocument(text).errors[0]?.message
+  return parseDocument(text, YAML11).errors[0]?.message
 }
 
 export async function readConfigFile(dir: string, id: ConfigFileId): Promise<ConfigFileContent> {
@@ -146,9 +161,13 @@ function scalarText(value: string, type?: string | null, flow = false): string {
   const defaultStringType = type === 'QUOTE_DOUBLE' || type === 'QUOTE_SINGLE' ? type : 'PLAIN'
   // Flow context: plain text containing flow indicators would split or nest the list.
   if (flow && /[,[\]{}]/.test(value)) {
-    return stringify(value, { defaultStringType: 'QUOTE_SINGLE', lineWidth: 0 }).trimEnd()
+    return stringify(value, {
+      ...YAML11,
+      defaultStringType: 'QUOTE_SINGLE',
+      lineWidth: 0
+    }).trimEnd()
   }
-  return stringify(value, { defaultStringType, lineWidth: 0 }).trimEnd()
+  return stringify(value, { ...YAML11, defaultStringType, lineWidth: 0 }).trimEnd()
 }
 
 function spliceFor(doc: Document, text: string, edit: ConfigEdit, eol: string): Splice {
@@ -161,8 +180,7 @@ function spliceFor(doc: Document, text: string, edit: ConfigEdit, eol: string): 
   const [start, end] = range
   const { kind } = describeLeaf(node, text)
   const { value } = edit
-  const wrongType = (): AppError =>
-    new AppError('CONFIG_VALUE', `Wrong value type for ${where}`)
+  const wrongType = (): AppError => new AppError('CONFIG_VALUE', `Wrong value type for ${where}`)
 
   switch (kind) {
     case 'bool':
@@ -212,7 +230,7 @@ function assertValidYaml(text: string): void {
 /** Applies value edits by splicing new text over each value's range, so nothing else changes. */
 export function applyEdits(text: string, edits: ConfigEdit[]): string {
   assertValidYaml(text)
-  const doc = parseDocument(text)
+  const doc = parseDocument(text, YAML11)
   const eol = text.includes('\r\n') ? '\r\n' : '\n'
   const latest = new Map(edits.map((edit) => [JSON.stringify(edit.path), edit]))
   const splices = [...latest.values()]
@@ -222,7 +240,7 @@ export function applyEdits(text: string, edits: ConfigEdit[]): string {
   for (const s of splices) out = out.slice(0, s.start) + s.text + out.slice(s.end)
 
   assertValidYaml(out)
-  const check = parseDocument(out)
+  const check = parseDocument(out, YAML11)
   for (const edit of latest.values()) {
     const written = describeLeaf(findNode(check, edit.path), out).value
     if (JSON.stringify(written) !== JSON.stringify(edit.value)) {
@@ -241,7 +259,8 @@ export async function writeConfigFile(
   let next: string
   if (change.mode === 'raw') {
     assertValidYaml(change.text)
-    next = change.text
+    // Browsers normalise textarea newlines to LF; keep a CRLF file CRLF.
+    next = current.includes('\r\n') ? change.text.replace(/\r?\n/g, '\r\n') : change.text
   } else {
     next = applyEdits(current, change.edits)
   }
