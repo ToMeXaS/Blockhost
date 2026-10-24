@@ -309,6 +309,24 @@ describe('ContentService', () => {
     expect((await readManifest(dir)).entries).toEqual([])
   })
 
+  it('asks for a jar of the reported size when the source gives no hash', async () => {
+    const { service, downloads, providersExtra } = await setup({ extraProvider: true })
+    const unhashed = hangarVersion('u1', 'H')
+    unhashed.file.hash = null
+    providersExtra.versions.mockResolvedValueOnce([unhashed])
+    await service.install(ID, { source: 'hangar', projectId: 'H' })
+    expect(downloads).toHaveLength(1)
+    expect(downloads[0]).toMatchObject({ expectZip: true, expectedSize: 3 })
+    expect(downloads[0].hash).toBeUndefined()
+  })
+
+  it('does not check the size when the file is hash-verified', async () => {
+    const { service, downloads } = await setup()
+    await service.install(ID, { source: 'modrinth', projectId: 'fabric-api' })
+    expect(downloads[0].expectZip).toBe(true)
+    expect(downloads[0].expectedSize).toBeUndefined()
+  })
+
   it('skips a download when a file with that name exists', async () => {
     const { service, mods, download } = await setup()
     await mkdir(mods)

@@ -100,7 +100,8 @@ export interface ContentProvider {
   categories: Partial<Record<ContentCategory, string[]>>
   /** False when this source cannot serve the query at all (e.g. text + category on Spiget). */
   supportsQuery?(q: ProviderQuery): boolean
-  search(q: ProviderQuery): Promise<{ hits: Hit[]; total: number }>
+  /** fetched: raw page size before client-side filtering, when it differs from hits.length. */
+  search(q: ProviderQuery): Promise<{ hits: Hit[]; total: number; fetched?: number }>
   project(idOrSlug: string): Promise<ProjectInfo>
   /** Versions compatible with the target and game version, newest first. */
   versions(projectId: string, target: ContentTarget, mcVersion: string): Promise<Version[]>

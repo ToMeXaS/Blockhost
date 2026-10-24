@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { pathExists } from '../util/fs'
@@ -110,6 +110,44 @@ describe('downloadFile', () => {
       dest: join(dir, '1.jar'),
       allowedHosts: ['api.spiget.org', 'cdn.spiget.org'],
       fetchImpl
+    })
+  })
+
+  it('rejects a non-zip when a jar is expected', async () => {
+    const dir = await tempDir()
+    const fetchImpl = (async () => new Response('<html>blocked</html>')) as unknown as typeof fetch
+    await expect(
+      downloadFile({
+        url: 'https://cdn.spiget.org/x.jar',
+        dest: join(dir, 'x.jar'),
+        expectZip: true,
+        fetchImpl,
+        retries: 0
+      })
+    ).rejects.toMatchObject({ code: 'DOWNLOAD_INVALID' })
+    expect(await readdir(dir)).toEqual([])
+  })
+
+  it('checks an exact size when given', async () => {
+    const dir = await tempDir()
+    const fetchImpl = (async () => new Response('PK\u0003\u0004abc')) as unknown as typeof fetch
+    await expect(
+      downloadFile({
+        url: 'https://cdn.spiget.org/x.jar',
+        dest: join(dir, 'x.jar'),
+        expectZip: true,
+        expectedSize: 99,
+        fetchImpl,
+        retries: 0
+      })
+    ).rejects.toMatchObject({ code: 'DOWNLOAD_INVALID' })
+    await downloadFile({
+      url: 'https://cdn.spiget.org/x.jar',
+      dest: join(dir, 'y.jar'),
+      expectZip: true,
+      expectedSize: 7,
+      fetchImpl,
+      retries: 0
     })
   })
 })

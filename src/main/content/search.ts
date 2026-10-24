@@ -41,8 +41,10 @@ export async function searchAll(
         const r = await p.search(q)
         pages[i] = r.hits
         sources[i] = { source: p.id, status: 'ok', total: r.total }
-        const offset = q.offset + r.hits.length
-        next[p.id] = r.hits.length < limit || offset >= r.total ? 'done' : offset
+        // A provider that filters client-side reports the raw page size it fetched.
+        const got = r.fetched ?? r.hits.length
+        const offset = q.offset + got
+        next[p.id] = got < limit || offset >= r.total ? 'done' : offset
       } catch (err) {
         if (!isSourceDown(err)) throw err
         failed = err

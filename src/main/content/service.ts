@@ -736,6 +736,8 @@ export class ContentService {
           url: plan[i].file.url,
           dest,
           hash: plan[i].file.hash ?? undefined,
+          expectZip: true,
+          expectedSize: plan[i].file.hash ? undefined : (plan[i].file.size ?? undefined),
           allowedHosts: provider.downloadHosts
         })
         created.push(dest)
@@ -747,6 +749,8 @@ export class ContentService {
           url: plan[0].file.url,
           dest: tempDest,
           hash: plan[0].file.hash ?? undefined,
+          expectZip: true,
+          expectedSize: plan[0].file.hash ? undefined : (plan[0].file.size ?? undefined),
           allowedHosts: provider.downloadHosts
         })
         created.push(tempDest)
@@ -758,6 +762,8 @@ export class ContentService {
           url: plan[0].file.url,
           dest: rootDest,
           hash: plan[0].file.hash ?? undefined,
+          expectZip: true,
+          expectedSize: plan[0].file.hash ? undefined : (plan[0].file.size ?? undefined),
           allowedHosts: provider.downloadHosts
         })
         created.push(rootDest)

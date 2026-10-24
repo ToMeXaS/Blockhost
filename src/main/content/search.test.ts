@@ -66,6 +66,15 @@ describe('searchAll', () => {
     expect(next.cursor).toBeNull()
   })
 
+  it('pages by the raw size when a provider filters results out', async () => {
+    const a = provider('spigot', [], 100, {
+      search: vi.fn(async () => ({ hits: [hit('spigot', 1)], total: 100, fetched: 2 }))
+    })
+    const r = await searchAll([a], base, null, 2)
+    expect(r.hits).toHaveLength(1)
+    expect(r.cursor).toEqual({ spigot: 2 })
+  })
+
   it('keeps going when one source fails and retries the same page later', async () => {
     const a = provider('modrinth', [[hit('modrinth', 1)]], 1)
     const b = provider('hangar', [], 0, {
