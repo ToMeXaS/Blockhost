@@ -156,12 +156,12 @@ async function setup(
   const hashes: Record<string, string> = {}
   const processes = { status: vi.fn((): ServerStatus => opts.status ?? 'stopped') }
   const providersExtra = {
-    versions: vi.fn(async (): Promise<Version[]> => [])
+    versions: vi.fn(async (_projectId?: string): Promise<Version[]> => [])
   }
   const extra: ContentProvider = {
     id: 'hangar',
     label: 'Hangar',
-    supports: () => true,
+    supports: (t) => t.projectType === 'plugin',
     downloadHosts: ['hangarcdn.papermc.io'],
     categories: {},
     search: vi.fn(async () => ({ hits: [], total: 0 })),
@@ -310,7 +310,10 @@ describe('ContentService', () => {
   })
 
   it('asks for a jar of the reported size when the source gives no hash', async () => {
-    const { service, downloads, providersExtra } = await setup({ extraProvider: true })
+    const { service, downloads, providersExtra } = await setup({
+      extraProvider: true,
+      type: 'paper'
+    })
     const unhashed = hangarVersion('u1', 'H')
     unhashed.file.hash = null
     providersExtra.versions.mockResolvedValueOnce([unhashed])
@@ -1069,6 +1072,124 @@ describe('ContentService installed list v2', () => {
     })
   })
 
+  it('records the installed version channel and publish date', async () => {
+    const { service, dir, providersExtra } = await setup({ extraProvider: true, type: 'paper' })
+    providersExtra.versions.mockResolvedValueOnce([
+      { ...hangarVersion('b1', 'H'), channel: 'beta', publishedAt: '2026-03-01T00:00:00.000Z' }
+    ])
+    await service.install(ID, { source: 'hangar', projectId: 'H' })
+    expect((await readManifest(dir)).entries[0]).toMatchObject({
+      channel: 'beta',
+      publishedAt: '2026-03-01T00:00:00.000Z'
+    })
+  })
+
+  it('does not offer an older release as an update to an installed newer beta', async () => {
+    const { service, dir, hashes, providersExtra } = await setup({
+      extraProvider: true,
+      type: 'paper'
+    })
+    const plugins = join(dir, 'plugins')
+    await mkdir(plugins)
+    await writeFile(join(plugins, 'h.jar'), 'x')
+    hashes['h.jar'] = 'sha1-h'
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
+          fileName: 'h.jar',
+          projectId: 'H',
+          source: 'hangar',
+          sha1: 'sha1-h',
+          versionId: 'beta',
+          channel: 'beta',
+          publishedAt: '2026-03-01T00:00:00.000Z'
+        })
+      ])
+    )
+    const release = { ...hangarVersion('rel', 'H'), publishedAt: '2026-02-01T00:00:00.000Z' }
+    providersExtra.versions.mockResolvedValue([release])
+    expect((await service.listInstalled(ID)).items[0].update).toBeUndefined()
+
+    // An older beta does see the newer release.
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
+          fileName: 'h.jar',
+          projectId: 'H',
+          source: 'hangar',
+          sha1: 'sha1-h',
+          versionId: 'beta',
+          channel: 'beta',
+          publishedAt: '2026-01-01T00:00:00.000Z'
+        })
+      ])
+    )
+    expect((await service.listInstalled(ID)).items[0].update).toEqual({
+      versionId: 'rel',
+      versionNumber: 'rel-num'
+    })
+  })
+
+  it('checks an installed prerelease with betas included on a fast-path source', async () => {
+    const { service, dir, mods, hashes, client } = await setup()
+    await mkdir(mods)
+    await writeFile(join(mods, 'sodium-1.jar'), 'x')
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
+          fileName: 'sodium-1.jar',
+          projectId: SODIUM.id,
+          sha1: 'sha1-s1',
+          versionId: 's1',
+          channel: 'beta'
+        })
+      ])
+    )
+    await service.listInstalled(ID)
+    expect(client.latest).toHaveBeenLastCalledWith(['sha1-s1'], ['fabric'], '1.21.4', true)
+  })
+
+  it('treats a project gone from a source as having no update, not as the source being offline', async () => {
+    const { service, dir, hashes, providersExtra } = await setup({
+      extraProvider: true,
+      type: 'paper'
+    })
+    const plugins = join(dir, 'plugins')
+    await mkdir(plugins)
+    for (const n of ['a', 'b']) {
+      await writeFile(join(plugins, `${n}.jar`), 'x')
+      hashes[`${n}.jar`] = `sha1-${n}`
+    }
+    await writeManifest(
+      dir,
+      manifestOf(
+        ['a', 'b'].map((n) =>
+          manifestEntry({
+            fileName: `${n}.jar`,
+            projectId: n.toUpperCase(),
+            source: 'hangar',
+            sha1: `sha1-${n}`,
+            versionId: 'old'
+          })
+        )
+      )
+    )
+    providersExtra.versions.mockImplementation(async (pid?: string) => {
+      if (pid === 'A') throw new AppError('CONTENT_SOURCE_API', 'gone', { status: 404 })
+      return [hangarVersion('new', pid!)]
+    })
+    const list = await service.listInstalled(ID)
+    expect(list.offline).toEqual([])
+    expect(list.items.map((i) => [i.fileName, i.update?.versionId])).toEqual([
+      ['a.jar', undefined],
+      ['b.jar', 'new']
+    ])
+  })
+
   it('removes both the jar and its disabled form', async () => {
     const { service, mods } = await setup()
     await mkdir(mods)
@@ -1082,11 +1203,28 @@ describe('ContentService browse API', () => {
   const ref = { source: 'modrinth' as const, projectId: 'sodium' }
 
   it('lists the sources for the server', async () => {
-    const { service } = await setup({ extraProvider: true })
+    const { service } = await setup({ extraProvider: true, type: 'paper' })
     expect(service.sources(ID)).toEqual([
       { source: 'modrinth', label: 'Modrinth' },
       { source: 'hangar', label: 'Hangar' }
     ])
+  })
+
+  it('refuses a plugin-only source on a mod server', async () => {
+    const { service, download } = await setup({ extraProvider: true })
+    const ref = { source: 'hangar' as const, projectId: 'H' }
+    for (const call of [
+      () => service.project(ID, ref),
+      () => service.versions(ID, ref, false),
+      () => service.plan(ID, ref),
+      () => service.install(ID, ref)
+    ]) {
+      await expect(call()).rejects.toMatchObject({
+        code: 'CONTENT_NOT_SUPPORTED',
+        message: "Hangar plugins can't be installed on a Fabric server."
+      })
+    }
+    expect(download).not.toHaveBeenCalled()
   })
 
   it('searches the requested sources and marks installed hits', async () => {

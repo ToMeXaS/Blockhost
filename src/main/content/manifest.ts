@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { CONTENT_SOURCES, type ContentSource } from '../../shared/types'
+import { CONTENT_SOURCES, type ContentChannel, type ContentSource } from '../../shared/types'
 import { writeFileAtomic } from '../util/fs'
 
 export interface ManifestEntry {
@@ -19,6 +19,9 @@ export interface ManifestEntry {
   /** Installed directly (not only as somebody's dependency). */
   explicit: boolean
   installedAt: string
+  /** Of the installed version; absent in manifests written before it was recorded. */
+  channel?: ContentChannel
+  publishedAt?: string | null
 }
 
 export interface Manifest {
@@ -53,7 +56,9 @@ function isEntry(value: unknown): value is ManifestEntry {
     (v.iconUrl === null || typeof v.iconUrl === 'string') &&
     typeof v.disabled === 'boolean' &&
     typeof v.explicit === 'boolean' &&
-    typeof v.installedAt === 'string'
+    typeof v.installedAt === 'string' &&
+    (v.channel === undefined || ['release', 'beta', 'alpha'].includes(v.channel as string)) &&
+    (v.publishedAt === undefined || v.publishedAt === null || typeof v.publishedAt === 'string')
   )
 }
 

@@ -21,7 +21,7 @@ import {
   type ServerRecord
 } from '../../shared/types'
 import { AppError } from '../errors'
-import { isSourceDown } from './http'
+import { isNotFound, isSourceDown } from './http'
 import type { DownloadFn } from '../net/download'
 import type { ProcessManager } from '../servers/process'
 import type { ServerStore } from '../servers/store'
@@ -149,12 +149,20 @@ export class ContentService {
     this.providers = new Map(deps.providers.map((p) => [p.id, p]))
   }
 
-  private provider(source: ContentSource): ContentProvider {
+  /** With `c`, also refuses a source that cannot serve that server's type. */
+  private provider(source: ContentSource, c?: Ctx): ContentProvider {
     const p = this.providers.get(source)
     if (!p) {
       throw new AppError(
         'CONTENT_NOT_SUPPORTED',
         `${CONTENT_SOURCE_LABELS[source]} is not available.`
+      )
+    }
+    // Only plugin sources can refuse a target (Modrinth serves every non-vanilla one).
+    if (c && !p.supports(c.target)) {
+      throw new AppError(
+        'CONTENT_NOT_SUPPORTED',
+        `${p.label} plugins can't be installed on a ${SERVER_TYPE_LABELS[c.rec.type]} server.`
       )
     }
     return p
@@ -194,8 +202,9 @@ export class ContentService {
   }
 
   async project(serverId: string, ref: ContentRef): Promise<ContentProjectView> {
-    const { rec } = this.ctx(serverId)
-    const provider = this.provider(ref.source)
+    const c = this.ctx(serverId)
+    const { rec } = c
+    const provider = this.provider(ref.source, c)
     const info = await this.info(provider, ref.projectId)
     const entry = (await readManifest(rec.dir)).entries.find(
       (e) => e.source === ref.source && e.projectId === info.id
@@ -216,8 +225,9 @@ export class ContentService {
   }
 
   async versions(serverId: string, ref: ContentRef, all: boolean): Promise<ContentVersionView[]> {
-    const { rec, target } = this.ctx(serverId)
-    const provider = this.provider(ref.source)
+    const c = this.ctx(serverId)
+    const { rec, target } = c
+    const provider = this.provider(ref.source, c)
     const { id } = await this.info(provider, ref.projectId)
     const compatible = await provider.versions(id, target, rec.mcVersion)
     const ok = new Set(compatible.map((v) => v.id))
@@ -236,7 +246,7 @@ export class ContentService {
 
   async plan(serverId: string, ref: ContentRef, versionId?: string): Promise<ContentPlanView> {
     const c = this.ctx(serverId)
-    const provider = this.provider(ref.source)
+    const provider = this.provider(ref.source, c)
     const manifest = await readManifest(c.rec.dir)
     const plan = await this.planFor(c, provider, manifest, ref.projectId, versionId)
     const optional = await Promise.all(
@@ -315,26 +325,13 @@ export class ContentService {
         const mine = entries.filter((e) => e.source === provider.id)
         if (!mine.length || offline.has(provider.id)) continue
         try {
-          if (provider.latest) {
-            const found = await provider.latest(
-              mine.map((e) => e.sha1),
-              target,
-              rec.mcVersion,
-              manifest.includeBeta
-            )
-            for (const e of mine) {
-              const v = found[e.sha1]
-              if (v && v.id !== e.versionId) updates.set(e.fileName, v)
-            }
-          } else {
-            await mapLimit(mine, 4, async (e) => {
-              const v = pickVersion(
-                await provider.versions(e.projectId, target, rec.mcVersion),
-                manifest.includeBeta
-              )
-              if (v && v.id !== e.versionId) updates.set(e.fileName, v)
-            })
-          }
+          const found = await this.newerVersions(
+            { rec, target },
+            provider,
+            mine,
+            manifest.includeBeta
+          )
+          for (const [name, v] of found) updates.set(name, v)
         } catch (err) {
           if (!isSourceDown(err)) throw err
           offline.add(provider.id)
@@ -385,7 +382,7 @@ export class ContentService {
   install(serverId: string, ref: ContentRef, versionId?: string): Promise<ContentInstallResult> {
     return this.serial(serverId, async () => {
       const c = this.ctx(serverId)
-      const provider = this.provider(ref.source)
+      const provider = this.provider(ref.source, c)
       const manifest = await readManifest(c.rec.dir)
       const plan = await this.planFor(c, provider, manifest, ref.projectId, versionId)
       const wrote = await this.apply(c, provider, manifest, plan, null)
@@ -458,7 +455,7 @@ export class ContentService {
     if (!entry) {
       throw new AppError(
         'NOT_FOUND',
-        `${name} was not installed from Modrinth, so Blockhost cannot update it.`
+        `${name} was not installed through Blockhost, so Blockhost cannot update it.`
       )
     }
     const provider = this.provider(entry.source)
@@ -683,18 +680,53 @@ export class ContentService {
     entry: ManifestEntry,
     includeBeta: boolean
   ): Promise<Version | null> {
-    let v: Version | null
-    if (provider.latest) {
-      v =
-        (await provider.latest([entry.sha1], c.target, c.rec.mcVersion, includeBeta))[entry.sha1] ??
-        null
-    } else {
-      v = pickVersion(
-        await provider.versions(entry.projectId, c.target, c.rec.mcVersion),
-        includeBeta
-      )
+    return (await this.newerVersions(c, provider, [entry], includeBeta)).get(entry.fileName) ?? null
+  }
+
+  /**
+   * fileName -> the version each entry can be updated to. An entry installed from a beta or alpha
+   * is checked as if betas were included, and a candidate that is not newer than what is
+   * installed is never offered (no downgrades).
+   */
+  private async newerVersions(
+    c: Pick<Ctx, 'rec' | 'target'>,
+    provider: ContentProvider,
+    entries: ManifestEntry[],
+    includeBeta: boolean
+  ): Promise<Map<string, Version>> {
+    const found = new Map<string, Version>()
+    const offer = (e: ManifestEntry, v: Version | null | undefined): void => {
+      if (v && isUpdateFor(e, v)) found.set(e.fileName, v)
     }
-    return v && v.id !== entry.versionId ? v : null
+    if (provider.latest) {
+      const groups = includeBeta
+        ? [{ beta: true, list: entries }]
+        : [
+            { beta: false, list: entries.filter((e) => !isPrerelease(e)) },
+            { beta: true, list: entries.filter(isPrerelease) }
+          ]
+      for (const { beta, list } of groups) {
+        if (!list.length) continue
+        const latest = await provider.latest(
+          list.map((e) => e.sha1),
+          c.target,
+          c.rec.mcVersion,
+          beta
+        )
+        for (const e of list) offer(e, latest[e.sha1])
+      }
+      return found
+    }
+    await mapLimit(entries, 4, async (e) => {
+      try {
+        const versions = await provider.versions(e.projectId, c.target, c.rec.mcVersion)
+        offer(e, pickVersion(versions, includeBeta || isPrerelease(e)))
+      } catch (err) {
+        // One project gone from the source is not the source being down.
+        if (!isNotFound(err)) throw err
+      }
+    })
+    return found
   }
 
   /**
@@ -828,6 +860,8 @@ export class ContentService {
         title: item.title,
         versionNumber: item.versionNumber,
         iconUrl: item.iconUrl,
+        channel: item.channel,
+        publishedAt: item.publishedAt,
         sha1: shas[i],
         dependencyOf: i === 0 && replacing ? replacing.dependencyOf : item.dependencyOf.map(key),
         disabled: false,
@@ -885,6 +919,13 @@ export class ContentService {
     )
     return run
   }
+}
+
+const isPrerelease = (e: ManifestEntry): boolean => e.channel === 'beta' || e.channel === 'alpha'
+
+function isUpdateFor(e: ManifestEntry, v: Version): boolean {
+  if (v.id === e.versionId) return false
+  return !(e.publishedAt && v.publishedAt && v.publishedAt <= e.publishedAt)
 }
 
 function sameEntries(a: ManifestEntry[], b: ManifestEntry[]): boolean {
