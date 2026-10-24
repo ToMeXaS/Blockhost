@@ -136,7 +136,19 @@ export function hangarProvider(opts: {
       `/projects/${encodeURIComponent(projectId)}/versions?limit=${VERSION_PAGE}&offset=0&platform=${PLATFORM}${filter}`
     )
     // Hangar returns newest first.
-    return r.result.map((v) => toVersion(projectId, v))
+    const list = r.result.map((v) => toVersion(projectId, v))
+    // Blockhost only saves .jar files; anything else (e.g. a .zip) is sent to the project page.
+    const notJar = (v: Version): boolean =>
+      v.file.url !== null && v.file.filename !== '' && !/\.jar$/i.test(v.file.filename)
+    if (list.some(notJar)) {
+      const page = pageUrl(
+        await http.json<HangarProject>(`/projects/${encodeURIComponent(projectId)}`)
+      )
+      for (const v of list) {
+        if (notJar(v)) v.file = { ...v.file, url: null, externalUrl: page }
+      }
+    }
+    return list
   }
 
   return {

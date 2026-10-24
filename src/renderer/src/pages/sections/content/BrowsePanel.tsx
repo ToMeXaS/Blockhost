@@ -68,7 +68,9 @@ export function BrowsePanel({ server, noun, available, onOpen, onInstalled, inst
       const e = err as { code?: string; details?: { externalUrl?: string } }
       if (e.code === 'CONTENT_EXTERNAL_ONLY' && e.details?.externalUrl) {
         toast.info(`${hit.title} must be downloaded from its own page.`)
-        void api.openExternal(e.details.externalUrl)
+        api
+          .openExternal(e.details.externalUrl)
+          .catch((openErr) => toast.error(errorMessage(openErr)))
       } else toast.error(errorMessage(err))
     } finally {
       setBusy(null)

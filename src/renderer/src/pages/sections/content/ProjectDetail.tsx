@@ -42,6 +42,8 @@ export function ProjectDetail({ server, projectRef, fallback, onBack, onChanged 
   const [busy, setBusy] = useState(false)
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
+  const [versionsError, setVersionsError] = useState<string | null>(null)
+  const [reloadVersions, setReloadVersions] = useState(0)
 
   useEffect(() => {
     let live = true
@@ -58,14 +60,15 @@ export function ProjectDetail({ server, projectRef, fallback, onBack, onChanged 
   useEffect(() => {
     let live = true
     setVersions(null)
+    setVersionsError(null)
     api.contentVersions(server.id, projectRef, showAll).then(
       (v) => live && setVersions(v),
-      () => live && setVersions([])
+      (e) => live && setVersionsError(errorMessage(e))
     )
     return () => {
       live = false
     }
-  }, [server.id, projectRef, showAll])
+  }, [server.id, projectRef, showAll, reloadVersions])
 
   useEffect(() => {
     if (!project || project.installed) return
@@ -154,7 +157,11 @@ export function ProjectDetail({ server, projectRef, fallback, onBack, onChanged 
               ) : externalOnly ? (
                 <Button
                   variant="primary"
-                  onClick={() => void api.openExternal(externalOnly.externalUrl!)}
+                  onClick={() =>
+                    api
+                      .openExternal(externalOnly.externalUrl!)
+                      .catch((err) => toast.error(errorMessage(err)))
+                  }
                 >
                   Open in browser
                 </Button>
@@ -257,7 +264,14 @@ export function ProjectDetail({ server, projectRef, fallback, onBack, onChanged 
             Show incompatible
             <Switch label="Show incompatible versions" checked={showAll} onChange={setShowAll} />
           </label>
-          {versions === null ? (
+          {versionsError ? (
+            <div className="flex items-center gap-3 text-sm">
+              <ErrorText>{versionsError}</ErrorText>
+              <Button size="sm" variant="ghost" onClick={() => setReloadVersions((n) => n + 1)}>
+                Retry
+              </Button>
+            </div>
+          ) : versions === null ? (
             <p className="text-sm text-faint">Loading…</p>
           ) : versions.length === 0 ? (
             <p className="text-sm text-faint">No versions for {server.mcVersion}.</p>

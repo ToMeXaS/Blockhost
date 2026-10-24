@@ -67,6 +67,7 @@ export function jarName(name: string, version: string): string {
   const base = `${name}-${version}`
     .replace(/[^A-Za-z0-9._+-]+/g, '-')
     .replace(/-+/g, '-')
+    .replace(/\.{2,}/g, '.')
     .replace(/^[-.]+|[-.]+$/g, '')
   return `${base.slice(0, 120) || 'plugin'}.jar`
 }
@@ -87,13 +88,11 @@ export function spigetProvider(opts: {
     resetHeader: 'Retry-After'
   })
 
-  const resource = (id: string): Promise<SpigetResource> =>
-    http.json<SpigetResource>(
-      `/resources/${encodeURIComponent(id)}?fields=${FIELDS},description,links`
-    )
+  const resource = (id: string, fields: string): Promise<SpigetResource> =>
+    http.json<SpigetResource>(`/resources/${encodeURIComponent(id)}?fields=${fields}`)
 
   async function latest(id: string): Promise<Version> {
-    const r = await resource(id)
+    const r = await resource(id, FIELDS)
     const v = await http.json<{ id: number; name: string; releaseDate: number }>(
       `/resources/${encodeURIComponent(id)}/versions/latest`
     )
@@ -168,7 +167,7 @@ export function spigetProvider(opts: {
     },
 
     async project(id): Promise<ProjectInfo> {
-      const r = await resource(id)
+      const r = await resource(id, `${FIELDS},description,links`)
       const links = Object.entries(r.links ?? {})
         .filter(([, url]) => /^https:\/\//.test(url))
         .map(([name, url]) => ({ kind: linkKind(name, url), url }))

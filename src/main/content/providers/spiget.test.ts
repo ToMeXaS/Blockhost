@@ -45,6 +45,7 @@ describe('jarName', () => {
   it('makes a safe .jar name', () => {
     expect(jarName('Luck Perms!', '5.5.71')).toBe('Luck-Perms-5.5.71.jar')
     expect(jarName('???', '')).toBe('plugin.jar')
+    expect(jarName('Plug', '1..2...3')).toBe('Plug-1.2.3.jar')
   })
 })
 
@@ -117,8 +118,9 @@ describe('spigetProvider', () => {
 
   it('sends premium and external resources to the browser', async () => {
     const ext = BROWSE.find((b) => b.external)!
-    const { p } = fake({ body: ext }, { body: LATEST })
+    const { p, urls } = fake({ body: ext }, { body: LATEST })
     const [v] = await p.versions(String(ext.id), paper, '1.21.4')
+    expect(urls[0]).not.toMatch(/description|links/)
     expect(v.file.url).toBeNull()
     expect(v.file.externalUrl).toBe(`https://www.spigotmc.org/resources/${ext.id}`)
   })

@@ -134,4 +134,15 @@ describe('hangarProvider', () => {
     })
     expect(deps.some((d) => d.kind === 'optional' && d.projectId)).toBe(true)
   })
+
+  it('sends a non-.jar file to the project page instead of downloading it', async () => {
+    const zip = structuredClone(VERSIONS)
+    zip.result[0].downloads.PAPER.fileInfo!.name = 'ViaBackwards.zip'
+    const { p } = fake(zip, PROJECT)
+    const [v] = await p.allVersions('ViaBackwards')
+    expect(v.file.url).toBeNull()
+    expect(v.file.externalUrl).toBe(
+      `https://hangar.papermc.io/${PROJECT.namespace.owner}/${PROJECT.namespace.slug}`
+    )
+  })
 })
