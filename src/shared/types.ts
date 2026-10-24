@@ -283,6 +283,16 @@ export const CONTENT_CATEGORY_LABELS: Record<ContentCategory, string> = {
   library: 'Library'
 }
 
+/** Per-source paging position; `done` (or absent) means the source is exhausted. */
+export type ContentCursor = Partial<Record<ContentSource, number | 'done'>>
+
+export interface ContentSourceStatus {
+  source: ContentSource
+  status: 'ok' | 'error' | 'skipped'
+  total: number
+  message?: string
+}
+
 export type ContentLinkKind = 'page' | 'issues' | 'source' | 'wiki' | 'discord' | 'other'
 
 export interface ContentSearchHit {
