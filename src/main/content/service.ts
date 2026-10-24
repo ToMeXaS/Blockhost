@@ -8,8 +8,13 @@ import {
   SERVER_TYPE_LABELS,
   type ContentInstallResult,
   type ContentOrphan,
+  type ContentPlanView,
+  type ContentProjectView,
+  type ContentRef,
+  type ContentSearchRequest,
   type ContentSearchResult,
   type ContentUpdateAllResult,
+  type ContentVersionView,
   type InstalledContent,
   type ContentSource,
   type InstalledContentList,
@@ -30,9 +35,11 @@ import {
   type ManifestEntry
 } from './manifest'
 import { pickVersion, planInstall, type Plan } from './resolver'
-import type { ContentProvider, Version } from './types'
+import { searchAll } from './search'
+import type { ContentProvider, ProjectInfo, Version } from './types'
 
 const DISABLED = '.disabled'
+const PROJECT_TTL_MS = 5 * 60 * 1000
 
 interface JarFile {
   /** Name on disk, including any ".disabled" suffix. */
@@ -119,6 +126,7 @@ export interface ContentServiceDeps {
   hashFile?: (path: string) => Promise<string>
   /** File operations used when replacing and removing jars; defaults to node's. */
   fsOps?: { rename?: typeof rename; rm?: typeof rm }
+  now?: () => number
 }
 
 interface Ctx {
@@ -132,9 +140,12 @@ export class ContentService {
   private readonly deps: ContentServiceDeps
   private readonly providers: Map<ContentSource, ContentProvider>
   private readonly queues = new Map<string, Promise<unknown>>()
+  private readonly projectCache = new Map<string, { at: number; info: ProjectInfo }>()
+  private readonly now: () => number
 
   constructor(deps: ContentServiceDeps) {
     this.deps = deps
+    this.now = deps.now ?? Date.now
     this.providers = new Map(deps.providers.map((p) => [p.id, p]))
   }
 
@@ -149,33 +160,98 @@ export class ContentService {
     return p
   }
 
+  sources(serverId: string): { source: ContentSource; label: string }[] {
+    const { target } = this.ctx(serverId)
+    return [...this.providers.values()]
+      .filter((p) => p.supports(target))
+      .map((p) => ({ source: p.id, label: p.label }))
+  }
+
   /** Not queued: it only reads the manifest, so it must not wait behind a slow install. */
-  async search(serverId: string, query: string, offset: number): Promise<ContentSearchResult> {
+  async search(serverId: string, req: ContentSearchRequest): Promise<ContentSearchResult> {
     const { rec, target } = this.ctx(serverId)
     const manifest = await readManifest(rec.dir)
-    const installed = new Set(
-      manifest.entries.filter((e) => e.source === 'modrinth').map((e) => e.projectId)
+    const installed = new Set(manifest.entries.map(entryKey))
+    const providers = [...this.providers.values()].filter(
+      (p) => p.supports(target) && req.sources.includes(p.id)
     )
-    const r = await this.provider('modrinth').search({
-      target,
-      mcVersion: rec.mcVersion,
-      text: query,
-      category: null,
-      sort: 'relevance',
-      offset,
-      limit: 20
-    })
+    const r = await searchAll(
+      providers,
+      { target, mcVersion: rec.mcVersion, text: req.text, category: req.category, sort: req.sort },
+      req.cursor
+    )
+    return { ...r, hits: r.hits.map((h) => ({ ...h, installed: installed.has(entryKey(h)) })) }
+  }
+
+  private async info(provider: ContentProvider, idOrSlug: string): Promise<ProjectInfo> {
+    const key = `${provider.id}:${idOrSlug}`
+    const hit = this.projectCache.get(key)
+    if (hit && this.now() - hit.at < PROJECT_TTL_MS) return hit.info
+    const info = await provider.project(idOrSlug)
+    this.projectCache.set(key, { at: this.now(), info })
+    this.projectCache.set(`${provider.id}:${info.id}`, { at: this.now(), info })
+    return info
+  }
+
+  async project(serverId: string, ref: ContentRef): Promise<ContentProjectView> {
+    const { rec } = this.ctx(serverId)
+    const provider = this.provider(ref.source)
+    const info = await this.info(provider, ref.projectId)
+    const entry = (await readManifest(rec.dir)).entries.find(
+      (e) => e.source === ref.source && e.projectId === info.id
+    )
+    const { id, ...rest } = info
     return {
-      total: r.total,
-      hits: r.hits.map((h) => ({
-        projectId: h.projectId,
-        slug: h.slug,
-        title: h.title,
-        description: h.description,
-        iconUrl: h.iconUrl,
-        downloads: h.downloads,
-        installed: installed.has(h.projectId)
-      }))
+      ...rest,
+      source: ref.source,
+      projectId: id,
+      installed: entry
+        ? {
+            fileName: entry.fileName,
+            versionId: entry.versionId,
+            versionNumber: entry.versionNumber
+          }
+        : null
+    }
+  }
+
+  async versions(serverId: string, ref: ContentRef, all: boolean): Promise<ContentVersionView[]> {
+    const { rec, target } = this.ctx(serverId)
+    const provider = this.provider(ref.source)
+    const { id } = await this.info(provider, ref.projectId)
+    const compatible = await provider.versions(id, target, rec.mcVersion)
+    const ok = new Set(compatible.map((v) => v.id))
+    const list = all ? await provider.allVersions(id) : compatible
+    return list.map((v) => ({
+      id: v.id,
+      versionNumber: v.versionNumber,
+      channel: v.channel,
+      publishedAt: v.publishedAt,
+      mcVersions: v.mcVersions,
+      compatible: ok.has(v.id),
+      downloadable: v.file.url !== null,
+      externalUrl: v.file.externalUrl
+    }))
+  }
+
+  async plan(serverId: string, ref: ContentRef, versionId?: string): Promise<ContentPlanView> {
+    const c = this.ctx(serverId)
+    const provider = this.provider(ref.source)
+    const manifest = await readManifest(c.rec.dir)
+    const plan = await this.planFor(c, provider, manifest, ref.projectId, versionId)
+    const optional = await Promise.all(
+      plan.optional.map(
+        async (pid) => (await this.info(provider, pid).catch(() => null))?.title ?? pid
+      )
+    )
+    return {
+      install: plan.items.map((i, n) => ({
+        title: i.title,
+        versionNumber: i.versionNumber,
+        asDependency: n > 0
+      })),
+      manual: plan.manual.map(({ title, externalUrl }) => ({ title, externalUrl })),
+      optional
     }
   }
 
@@ -306,12 +382,12 @@ export class ContentService {
     })
   }
 
-  install(serverId: string, projectIdOrSlug: string): Promise<ContentInstallResult> {
+  install(serverId: string, ref: ContentRef, versionId?: string): Promise<ContentInstallResult> {
     return this.serial(serverId, async () => {
       const c = this.ctx(serverId)
+      const provider = this.provider(ref.source)
       const manifest = await readManifest(c.rec.dir)
-      const provider = this.provider('modrinth')
-      const plan = await this.planFor(c, provider, manifest, projectIdOrSlug)
+      const plan = await this.planFor(c, provider, manifest, ref.projectId, versionId)
       const wrote = await this.apply(c, provider, manifest, plan, null)
       return this.result(c, plan, wrote)
     })

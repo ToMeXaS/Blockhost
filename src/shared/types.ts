@@ -295,19 +295,68 @@ export interface ContentSourceStatus {
 
 export type ContentLinkKind = 'page' | 'issues' | 'source' | 'wiki' | 'discord' | 'other'
 
-export interface ContentSearchHit {
+export interface ContentRef {
+  source: ContentSource
   projectId: string
+}
+
+export interface ContentSearchRequest {
+  text: string
+  sources: ContentSource[]
+  category: ContentCategory | null
+  sort: ContentSort
+  cursor: ContentCursor | null
+}
+
+export interface ContentSearchHit extends ContentRef {
   slug: string
   title: string
+  author: string | null
   description: string
   iconUrl: string | null
   downloads: number
+  updatedAt: string | null
+  untestedOnVersion: boolean
   installed: boolean
 }
 
 export interface ContentSearchResult {
   hits: ContentSearchHit[]
-  total: number
+  sources: ContentSourceStatus[]
+  cursor: ContentCursor | null
+}
+
+export interface ContentProjectView extends ContentRef {
+  slug: string
+  title: string
+  author: string | null
+  summary: string
+  iconUrl: string | null
+  downloads: number
+  updatedAt: string | null
+  license: string | null
+  description: { format: 'markdown' | 'html'; body: string }
+  gallery: { url: string; title: string | null }[]
+  links: { kind: ContentLinkKind; url: string }[]
+  pageUrl: string
+  installed: { fileName: string; versionId: string; versionNumber: string } | null
+}
+
+export interface ContentVersionView {
+  id: string
+  versionNumber: string
+  channel: ContentChannel
+  publishedAt: string | null
+  mcVersions: string[]
+  compatible: boolean
+  downloadable: boolean
+  externalUrl: string | null
+}
+
+export interface ContentPlanView {
+  install: { title: string; versionNumber: string; asDependency: boolean }[]
+  manual: { title: string; externalUrl: string | null }[]
+  optional: string[]
 }
 
 export interface InstalledContent {

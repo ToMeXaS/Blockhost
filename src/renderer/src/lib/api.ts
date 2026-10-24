@@ -7,8 +7,14 @@ import type {
   BackupMeta,
   ContentInstallResult,
   ContentOrphan,
+  ContentPlanView,
+  ContentProjectView,
+  ContentRef,
+  ContentSearchRequest,
   ContentSearchResult,
+  ContentSource,
   ContentUpdateAllResult,
+  ContentVersionView,
   CreateServerInput,
   DiskUsage,
   InstalledContentList,
@@ -101,11 +107,19 @@ export const api = {
   tunnelStatus: (id: string) => call<TunnelStatus>('tunnel:status', id),
   tunnelRetry: (id: string) => call<TunnelStatus>('tunnel:retry', id),
 
-  contentSearch: (id: string, query: string, offset: number) =>
-    call<ContentSearchResult>('content:search', id, query, offset),
+  contentSources: (id: string) =>
+    call<{ source: ContentSource; label: string }[]>('content:sources', id),
+  contentSearch: (id: string, req: ContentSearchRequest) =>
+    call<ContentSearchResult>('content:search', id, req),
+  contentProject: (id: string, ref: ContentRef) =>
+    call<ContentProjectView>('content:project', id, ref),
+  contentVersions: (id: string, ref: ContentRef, all: boolean) =>
+    call<ContentVersionView[]>('content:versions', id, ref, all),
+  contentPlan: (id: string, ref: ContentRef, versionId?: string) =>
+    call<ContentPlanView>('content:plan', id, ref, versionId),
   contentInstalled: (id: string) => call<InstalledContentList>('content:installed', id),
-  contentInstall: (id: string, projectId: string) =>
-    call<ContentInstallResult>('content:install', id, projectId),
+  contentInstall: (id: string, ref: ContentRef, versionId?: string) =>
+    call<ContentInstallResult>('content:install', id, ref, versionId),
   contentUpdate: (id: string, fileName: string) =>
     call<ContentInstallResult>('content:update', id, fileName),
   contentRemove: (id: string, fileName: string, removeOrphans = false) =>

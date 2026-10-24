@@ -12,19 +12,19 @@ import {
   backupFileSchema,
   commandSchema,
   contentFileSchema,
-  contentOffsetSchema,
-  contentQuerySchema,
+  contentRefSchema,
+  contentSearchSchema,
   createServerSchema,
   httpsUrlSchema,
   idSchema,
   javaMajorSchema,
   playerActionSchema,
   portSchema,
-  projectRefSchema,
   propertyEntriesSchema,
   restoreAsNewSchema,
   serverPatchSchema,
   serverTypeSchema,
+  versionIdSchema,
   versionSchema
 } from './schemas'
 import type { Services } from './services'
@@ -174,14 +174,26 @@ export function registerIpc(
   handle('tunnel:status', z.tuple([idSchema]), (id) => tunnels.status(id))
   handle('tunnel:retry', z.tuple([idSchema]), (id) => tunnels.retry(id))
 
+  handle('content:sources', z.tuple([idSchema]), (id) => content.sources(id))
+  handle('content:search', z.tuple([idSchema, contentSearchSchema]), (id, req) =>
+    content.search(id, req)
+  )
+  handle('content:project', z.tuple([idSchema, contentRefSchema]), (id, ref) =>
+    content.project(id, ref)
+  )
+  handle('content:versions', z.tuple([idSchema, contentRefSchema, z.boolean()]), (id, ref, all) =>
+    content.versions(id, ref, all)
+  )
   handle(
-    'content:search',
-    z.tuple([idSchema, contentQuerySchema, contentOffsetSchema]),
-    (id, query, offset) => content.search(id, query, offset)
+    'content:plan',
+    z.tuple([idSchema, contentRefSchema, versionIdSchema.optional()]),
+    (id, ref, v?: string) => content.plan(id, ref, v)
   )
   handle('content:installed', z.tuple([idSchema]), (id) => content.listInstalled(id))
-  handle('content:install', z.tuple([idSchema, projectRefSchema]), (id, projectId) =>
-    content.install(id, projectId)
+  handle(
+    'content:install',
+    z.tuple([idSchema, contentRefSchema, versionIdSchema.optional()]),
+    (id, ref, v?: string) => content.install(id, ref, v)
   )
   handle('content:update', z.tuple([idSchema, contentFileSchema]), (id, fileName) =>
     content.update(id, fileName)

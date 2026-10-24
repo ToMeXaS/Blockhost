@@ -1,7 +1,14 @@
 import { isAbsolute } from 'node:path'
 import { isIP } from 'node:net'
 import { z } from 'zod'
-import { BACKUP_INTERVALS, PLAYER_NAME_PATTERN, SERVER_TYPES } from '../shared/types'
+import {
+  BACKUP_INTERVALS,
+  CONTENT_CATEGORIES,
+  CONTENT_SORTS,
+  CONTENT_SOURCES,
+  PLAYER_NAME_PATTERN,
+  SERVER_TYPES
+} from '../shared/types'
 import { isBackupFileName } from './backups/store'
 import { safeFileName } from './content/service'
 import { JAVA_MAJORS } from './java/requirements'
@@ -147,9 +154,20 @@ export const playerActionSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('setWhitelistEnabled'), enabled: z.boolean(), overwriteCorrupt })
 ])
 
-export const contentQuerySchema = z.string().trim().max(100)
-export const contentOffsetSchema = z.number().int().min(0).max(10000)
-export const projectRefSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'Not a Modrinth project')
+const projectIdSchema = z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/, 'Not a project id')
+export const contentRefSchema = z.strictObject({
+  source: z.enum(CONTENT_SOURCES),
+  projectId: projectIdSchema
+})
+const offset = z.number().int().min(0).max(10000)
+export const contentSearchSchema = z.strictObject({
+  text: z.string().trim().max(100),
+  sources: z.array(z.enum(CONTENT_SOURCES)).max(CONTENT_SOURCES.length),
+  category: z.enum(CONTENT_CATEGORIES).nullable(),
+  sort: z.enum(CONTENT_SORTS),
+  cursor: z.partialRecord(z.enum(CONTENT_SOURCES), z.union([offset, z.literal('done')])).nullable()
+})
+export const versionIdSchema = z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/, 'Not a version id')
 export const contentFileSchema = z
   .string()
   .max(200)

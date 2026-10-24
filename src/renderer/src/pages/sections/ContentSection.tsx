@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CONTENT_LABELS, type ContentSearchHit, type ServerView } from '../../../../shared/types'
+import {
+  CONTENT_LABELS,
+  type ContentCursor,
+  type ContentSearchHit,
+  type ServerView
+} from '../../../../shared/types'
 import { Badge, Button, Card, ErrorText, inputClass, Notice } from '../../components/ui'
 import { useToast } from '../../components/Toaster'
 import { api, errorMessage } from '../../lib/api'
@@ -20,7 +25,7 @@ export function ContentSection({ server }: { server: ServerView }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<ContentSearchHit[]>([])
-  const [total, setTotal] = useState(0)
+  const [cursor, setCursor] = useState<ContentCursor | null>(null)
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [restartNeeded, setRestartNeeded] = useState(false)
@@ -34,16 +39,22 @@ export function ContentSection({ server }: { server: ServerView }) {
   }, [server.status])
 
   const runSearch = useCallback(
-    async (q: string, offset: number) => {
+    async (q: string, at: ContentCursor | null) => {
       const seq = ++searchSeq.current
       setSearching(true)
       setSearchError(null)
       try {
-        const r = await api.contentSearch(server.id, q, offset)
+        const r = await api.contentSearch(server.id, {
+          text: q,
+          sources: ['modrinth'],
+          category: null,
+          sort: 'relevance',
+          cursor: at
+        })
         if (seq !== searchSeq.current) return
-        if (offset === 0) shownQuery.current = q
-        setHits((prev) => (offset === 0 ? r.hits : [...prev, ...r.hits]))
-        setTotal(r.total)
+        if (at === null) shownQuery.current = q
+        setHits((prev) => (at === null ? r.hits : [...prev, ...r.hits]))
+        setCursor(r.cursor)
       } catch (err) {
         if (seq === searchSeq.current) setSearchError(errorMessage(err))
       } finally {
@@ -53,7 +64,7 @@ export function ContentSection({ server }: { server: ServerView }) {
     [server.id]
   )
   useEffect(() => {
-    const timer = setTimeout(() => void runSearch(query.trim(), 0), SEARCH_DEBOUNCE_MS)
+    const timer = setTimeout(() => void runSearch(query.trim(), null), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [query, runSearch])
 
@@ -70,7 +81,10 @@ export function ContentSection({ server }: { server: ServerView }) {
 
   const install = (hit: ContentSearchHit) =>
     act(hit.projectId, async () => {
-      const r = await api.contentInstall(server.id, hit.projectId)
+      const r = await api.contentInstall(server.id, {
+        source: hit.source,
+        projectId: hit.projectId
+      })
       const [main, ...deps] = r.installed
       if (main) {
         const extra = deps.map((d) => `${d.title} (dependency)`).join(', ')
@@ -108,7 +122,7 @@ export function ContentSection({ server }: { server: ServerView }) {
           {searchError ? (
             <div className="flex items-center gap-3 text-sm text-muted">
               <ErrorText>{searchError}</ErrorText>
-              <Button size="sm" variant="ghost" onClick={() => void runSearch(query.trim(), 0)}>
+              <Button size="sm" variant="ghost" onClick={() => void runSearch(query.trim(), null)}>
                 Retry
               </Button>
             </div>
@@ -155,10 +169,10 @@ export function ContentSection({ server }: { server: ServerView }) {
                 ))}
               </ul>
               {searching && <p className="text-sm text-faint">Searching…</p>}
-              {!searching && hits.length < total && (
+              {!searching && cursor !== null && (
                 <Button
                   className="w-full"
-                  onClick={() => void runSearch(shownQuery.current, hits.length)}
+                  onClick={() => void runSearch(shownQuery.current, cursor)}
                 >
                   Load more
                 </Button>

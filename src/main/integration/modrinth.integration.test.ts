@@ -38,11 +38,17 @@ describe('Modrinth (network)', () => {
       download: downloadFile
     })
 
-    const found = await service.search(ID, 'fabric api', 0)
+    const found = await service.search(ID, {
+      text: 'fabric api',
+      sources: ['modrinth'],
+      category: null,
+      sort: 'relevance',
+      cursor: null
+    })
     const hit = found.hits.find((h) => h.slug === 'fabric-api')
     expect(hit).toBeDefined()
 
-    const result = await service.install(ID, hit!.projectId)
+    const result = await service.install(ID, { source: hit!.source, projectId: hit!.projectId })
     expect(result.installed[0].title).toMatch(/Fabric API/)
 
     const list = await service.listInstalled(ID)
