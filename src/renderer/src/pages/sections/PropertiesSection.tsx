@@ -3,6 +3,7 @@ import type { ConfigFileInfo, ServerView } from '../../../../shared/types'
 import { useToast } from '../../components/Toaster'
 import { api, errorMessage } from '../../lib/api'
 import { PropertiesEditor } from './config/PropertiesEditor'
+import { YamlConfigEditor } from './config/YamlConfigEditor'
 
 const PROPERTIES = 'server.properties'
 
@@ -16,7 +17,7 @@ export function PropertiesSection({
   const toast = useToast()
   const [files, setFiles] = useState<ConfigFileInfo[]>([])
   const [active, setActive] = useState<string>(PROPERTIES)
-  const [, setOpened] = useState<Set<string>>(() => new Set([PROPERTIES]))
+  const [opened, setOpened] = useState<Set<string>>(() => new Set([PROPERTIES]))
   const [dirty, setDirty] = useState<Record<string, number>>({})
 
   useEffect(() => {
@@ -72,7 +73,13 @@ export function PropertiesSection({
       <div hidden={active !== PROPERTIES}>
         <PropertiesEditor server={server} onChanged={onChanged} onDirtyChange={onPropertiesDirty} />
       </div>
-      {/* YAML editors are added in Task 7 */}
+      {files
+        .filter((f) => opened.has(f.id))
+        .map((f) => (
+          <div key={f.id} hidden={active !== f.id}>
+            <YamlConfigEditor server={server} file={f} onDirtyChange={(n) => markDirty(f.id, n)} />
+          </div>
+        ))}
     </div>
   )
 }
