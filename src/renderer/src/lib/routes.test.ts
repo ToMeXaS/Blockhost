@@ -25,7 +25,7 @@ describe('sectionsFor', () => {
       'Console',
       'Players',
       'Mods',
-      'Properties',
+      'Config',
       'Backups',
       'Connect',
       'Settings'
