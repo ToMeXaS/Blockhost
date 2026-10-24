@@ -20,10 +20,14 @@ export interface SourceHttpOptions {
 export interface SourceHttp {
   json<T>(path: string, body?: unknown): Promise<T>
   jsonWithHeaders<T>(path: string): Promise<{ data: T; headers: Headers }>
+  /** GET a plain-text body. */
+  text(path: string): Promise<string>
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
+
+const readJson = async <T>(res: Response): Promise<T> => (await res.json()) as T
 
 export function createSourceHttp(opts: SourceHttpOptions): SourceHttp {
   const fetchImpl = opts.fetchImpl ?? fetch
@@ -50,7 +54,11 @@ export function createSourceHttp(opts: SourceHttpOptions): SourceHttp {
     }
   }
 
-  async function request<T>(path: string, body?: unknown): Promise<{ data: T; headers: Headers }> {
+  async function request<T>(
+    path: string,
+    body: unknown,
+    read: (res: Response) => Promise<T>
+  ): Promise<{ data: T; headers: Headers }> {
     let res = await send(path, body)
     if (res.status === 429) {
       const reset = Number(res.headers.get(resetHeader))
@@ -65,7 +73,7 @@ export function createSourceHttp(opts: SourceHttpOptions): SourceHttp {
       throw new AppError('CONTENT_SOURCE_API', `${opts.label} returned HTTP ${res.status}`, details)
     }
     try {
-      return { data: (await res.json()) as T, headers: res.headers }
+      return { data: await read(res), headers: res.headers }
     } catch {
       throw new AppError(
         'CONTENT_SOURCE_API',
@@ -76,8 +84,9 @@ export function createSourceHttp(opts: SourceHttpOptions): SourceHttp {
   }
 
   return {
-    json: async <T>(path: string, body?: unknown) => (await request<T>(path, body)).data,
-    jsonWithHeaders: <T>(path: string) => request<T>(path)
+    json: async <T>(path: string, body?: unknown) => (await request<T>(path, body, readJson)).data,
+    jsonWithHeaders: <T>(path: string) => request<T>(path, undefined, readJson),
+    text: async (path: string) => (await request(path, undefined, (res) => res.text())).data
   }
 }
 

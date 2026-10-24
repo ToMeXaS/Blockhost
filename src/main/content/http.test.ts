@@ -43,6 +43,23 @@ describe('createSourceHttp', () => {
     expect(r.headers.get('X-Page-Count')).toBe('7')
   })
 
+  it('reads plain text and maps its errors like json', async () => {
+    const ok = createSourceHttp({
+      source: 'hangar',
+      label: 'Hangar',
+      base: 'https://h.test/api',
+      userAgent: 'x',
+      fetchImpl: (async () => new Response('# Hello')) as unknown as typeof fetch
+    })
+    expect(await ok.text('/page')).toBe('# Hello')
+    const { http } = fake({ status: 404, body: {} })
+    const err = (await http.text('/page').catch((e) => e)) as AppError
+    expect(err).toMatchObject({
+      code: 'CONTENT_SOURCE_API',
+      details: { status: 404, source: 'hangar' }
+    })
+  })
+
   it('waits out one rate limit using the configured header', async () => {
     const { http, sleep } = fake(
       { status: 429, body: {}, headers: { 'Retry-After': '3' } },

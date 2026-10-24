@@ -4,7 +4,7 @@ import type {
   ContentLinkKind,
   ContentSort
 } from '../../../shared/types'
-import { createSourceHttp } from '../http'
+import { createSourceHttp, isNotFound } from '../http'
 import type { ContentProvider, Hit, ProjectInfo, Version } from '../types'
 
 export const HANGAR_API = 'https://hangar.papermc.io/api/v1'
@@ -181,6 +181,13 @@ export function hangarProvider(opts: {
 
     async project(idOrSlug): Promise<ProjectInfo> {
       const p = await http.json<HangarProject>(`/projects/${encodeURIComponent(idOrSlug)}`)
+      // The project endpoint leaves mainPageContent null; the page is served as plain markdown.
+      const page = await http
+        .text(`/pages/main/${encodeURIComponent(p.namespace.slug)}`)
+        .catch((err) => {
+          if (isNotFound(err)) return ''
+          throw err
+        })
       const extra = (p.settings?.links ?? [])
         .flatMap((g) => g.links ?? [])
         .filter((l) => /^https:\/\//.test(l.url))
@@ -194,7 +201,7 @@ export function hangarProvider(opts: {
         downloads: p.stats.downloads,
         updatedAt: p.lastUpdated,
         license: p.settings?.license?.name || p.settings?.license?.type || null,
-        description: { format: 'markdown', body: p.mainPageContent ?? '' },
+        description: { format: 'markdown', body: page || p.mainPageContent || '' },
         gallery: [],
         links: [
           { kind: 'page', url: pageUrl(p) },

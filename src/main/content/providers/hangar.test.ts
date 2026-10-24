@@ -7,7 +7,8 @@ function fake(...bodies: unknown[]) {
   const urls: string[] = []
   const fetchImpl = (async (url: string) => {
     urls.push(url)
-    return new Response(JSON.stringify(bodies.shift()))
+    const b = bodies.shift()
+    return new Response(typeof b === 'string' ? b : JSON.stringify(b))
   }) as unknown as typeof fetch
   return {
     urls,
@@ -80,8 +81,11 @@ describe('hangarProvider', () => {
   })
 
   it('maps project details from markdown and settings links', async () => {
-    const { p } = fake(PROJECT)
+    const page = '# ViaBackwards\nDocs'
+    const { p, urls } = fake(PROJECT, page)
     const info = await p.project('ViaBackwards')
+    expect(new URL(urls[1]).pathname).toBe('/api/v1/pages/main/ViaBackwards')
+    expect(info.description).toEqual({ format: 'markdown', body: page })
     expect(info).toMatchObject({
       id: PROJECT.namespace.slug,
       title: PROJECT.name,
@@ -91,6 +95,18 @@ describe('hangarProvider', () => {
       pageUrl: `https://hangar.papermc.io/${PROJECT.namespace.owner}/${PROJECT.namespace.slug}`
     })
     expect(info.links[0]).toEqual({ kind: 'page', url: info.pageUrl })
+  })
+
+  it('falls back to an empty description when the main page is missing', async () => {
+    const urls: string[] = []
+    const fetchImpl = (async (url: string) => {
+      urls.push(url)
+      return urls.length === 1
+        ? new Response(JSON.stringify(PROJECT))
+        : new Response('{}', { status: 404 })
+    }) as unknown as typeof fetch
+    const p = hangarProvider({ userAgent: 'x', fetchImpl, base: 'https://h.test/api/v1' })
+    expect((await p.project('ViaBackwards')).description).toEqual({ format: 'markdown', body: '' })
   })
 
   it('maps versions: compatibility, channels, hashes, dependencies, external downloads', async () => {
