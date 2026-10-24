@@ -6,8 +6,8 @@ export const SPIGET_API = 'https://api.spiget.org/v2'
 const FIELDS =
   'id,name,tag,downloads,updateDate,releaseDate,icon,testedVersions,external,premium,file,version,category'
 
-/** SpigotMC categories under "Spigot" plus "Universal"; everything else is proxy-only or not a plugin. */
-const PLUGIN_CATEGORIES = new Set([4, 14, 15, 16, 17, 18, 21, 22, 23, 24, 26])
+/** SpigotMC categories under "Spigot" plus "Universal" and "Premium" (shown, opened in the browser); everything else is proxy-only or not a plugin. */
+const PLUGIN_CATEGORIES = new Set([4, 14, 15, 16, 17, 18, 20, 21, 22, 23, 24, 26])
 
 const CATEGORIES: Partial<Record<ContentCategory, string[]>> = {
   chat: ['14'],
@@ -97,7 +97,8 @@ export function spigetProvider(opts: {
     const v = await http.json<{ id: number; name: string; releaseDate: number }>(
       `/resources/${encodeURIComponent(id)}/versions/latest`
     )
-    const blocked = r.external || r.premium === true
+    // Premium, external and non-.jar (e.g. .zip) resources are opened in the browser, never saved as a .jar.
+    const blocked = r.external || r.premium === true || (!!r.file?.type && r.file.type !== '.jar')
     return {
       id: String(v.id),
       projectId: String(r.id),

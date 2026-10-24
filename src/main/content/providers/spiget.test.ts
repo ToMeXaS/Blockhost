@@ -66,8 +66,10 @@ describe('spigetProvider', () => {
     expect(u.searchParams.get('sort')).toBe('-downloads')
     expect(r.total).toBe(200)
     expect(r.hits.every((h) => h.source === 'spigot')).toBe(true)
-    expect(r.hits.length).toBe(BROWSE.filter((b) => ![2, 20].includes(b.category.id)).length)
+    expect(r.hits.length).toBe(BROWSE.filter((b) => b.category.id !== 2).length)
     expect(r.hits.length).toBeLessThan(BROWSE.length)
+    const prem = BROWSE.find((b) => b.premium)!
+    expect(r.hits.map((h) => h.projectId)).toContain(String(prem.id))
     expect(r.fetched).toBe(BROWSE.length)
   })
 
@@ -119,6 +121,14 @@ describe('spigetProvider', () => {
     const [v] = await p.versions(String(ext.id), paper, '1.21.4')
     expect(v.file.url).toBeNull()
     expect(v.file.externalUrl).toBe(`https://www.spigotmc.org/resources/${ext.id}`)
+  })
+
+  it('sends non-jar resources to the browser', async () => {
+    const zip = BROWSE.find((b) => b.file.type === '.zip')!
+    const { p } = fake({ body: zip }, { body: LATEST })
+    const [v] = await p.versions(String(zip.id), paper, '1.21.4')
+    expect(v.file.url).toBeNull()
+    expect(v.file.externalUrl).toBe(`https://www.spigotmc.org/resources/${zip.id}`)
   })
 
   it('sends premium resources to the browser too', async () => {
