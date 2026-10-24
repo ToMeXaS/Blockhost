@@ -998,7 +998,7 @@ describe('ContentService installed list v2', () => {
     expect((await readManifest(dir)).includeBeta).toBe(true)
     const list = await service.listInstalled(ID)
     expect(list.includeBeta).toBe(true)
-    expect(client.latest).toHaveBeenLastCalledWith(['sha1-s1'], expect.anything(), '1.21.4', true)
+    expect(client.latest).toHaveBeenLastCalledWith(['sha1-s1'], ['fabric'], '1.21.4', true)
   })
 
   it('checks sources without a fast path project by project and reports which were offline', async () => {
@@ -1043,6 +1043,31 @@ describe('ContentService installed list v2', () => {
     client.latest.mockResolvedValueOnce({ 'sha1-s1': s2 })
     await service.update(ID, 'sodium-1.jar')
     expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-2.jar.disabled'])
+    expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject({
+      fileName: 'sodium-2.jar',
+      disabled: true
+    })
+  })
+
+  it('keeps a disabled jar disabled when its update only half succeeds', async () => {
+    const failingRm = vi.fn(async () => {
+      throw new Error('EBUSY: resource busy or locked')
+    })
+    const { service, mods, dir, client, versions, hashes } = await setup({
+      fsOps: { rm: failingRm }
+    })
+    await service.install(ID, 'sodium')
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    await service.setEnabled(ID, 'sodium-1.jar', false)
+    const s2 = ver('s2', SODIUM.id, 'sodium-2.jar', [API.id])
+    versions.push(s2)
+    client.latest.mockResolvedValueOnce({ 'sha1-s1': s2 })
+    await expect(service.update(ID, 'sodium-1.jar')).rejects.toMatchObject({ code: 'CONTENT_IO' })
+    expect((await readdir(mods)).sort()).toEqual([
+      'fabric-api-1.jar',
+      'sodium-1.jar.disabled',
+      'sodium-2.jar.disabled'
+    ])
     expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject({
       fileName: 'sodium-2.jar',
       disabled: true

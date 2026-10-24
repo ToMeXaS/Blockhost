@@ -312,7 +312,7 @@ export class ContentService {
       const latest = await this.newestFor(c, provider, entry, manifest.includeBeta)
       if (!latest) return { installed: [], restartNeeded: false }
 
-      return this.keepingDisabled(c, name, async () => {
+      return this.keepingDisabled(c, name, async (setNewName) => {
         // Exclude every manifest entry for this project (not just the one being updated) so the
         // resolver doesn't mistake the project for already installed and skip it entirely.
         const forPlan: Manifest = {
@@ -329,52 +329,81 @@ export class ContentService {
 
         // Only drop the entry being replaced, so a duplicate entry for the same project
         // (e.g. a second jar for the same mod) is left alone.
+        setNewName(safeFileName(plan.items[0].file.filename))
         const base: Manifest = {
           ...manifest,
           entries: manifest.entries.filter((e) => e !== entry)
         }
         const wrote = await this.apply(c, provider, base, plan, entry)
-        return {
-          value: this.result(c, plan, wrote),
-          newName: safeFileName(plan.items[0].file.filename)
-        }
+        return this.result(c, plan, wrote)
       })
     })
   }
 
   /**
    * Runs an update of `name`. If that jar is disabled it is renamed to its enabled name first
-   * (the replace logic works on `.jar` files), and the new root jar is disabled again after a
-   * successful update; on failure the old jar goes back to `.disabled`. The server is stopped.
+   * (the replace logic works on `.jar` files), and the new root jar is disabled again after the
+   * update. `run` reports the new root file name through `setNewName` before it writes anything.
+   * On failure the old jar goes back to `.disabled`, and so does the new root jar if the update
+   * got as far as installing it (it only half succeeded). The server is stopped.
    */
   private async keepingDisabled<T>(
     c: Ctx,
     name: string,
-    run: () => Promise<{ value: T; newName: string }>
+    run: (setNewName: (newName: string) => void) => Promise<T>
   ): Promise<T> {
     const doRename = this.deps.fsOps?.rename ?? rename
     const on = join(c.folder, name)
     const off = `${on}${DISABLED}`
+    let newName = name
+    const setNewName = (n: string): void => {
+      newName = n
+    }
     const wasDisabled = (await pathExists(off)) && !(await pathExists(on))
-    if (!wasDisabled) return (await run()).value
+    if (!wasDisabled) return run(setNewName)
     await doRename(off, on)
-    let out: { value: T; newName: string }
+
+    const disableNew = async (): Promise<void> => {
+      const next = join(c.folder, newName)
+      await doRename(next, `${next}${DISABLED}`)
+      const manifest = await readManifest(c.rec.dir)
+      await writeManifest(c.rec.dir, {
+        ...manifest,
+        entries: manifest.entries.map((e) =>
+          e.fileName === newName ? { ...e, disabled: true } : e
+        )
+      })
+    }
+
+    let value: T
     try {
-      out = await run()
+      value = await run(setNewName)
     } catch (err) {
-      if (await pathExists(on)) await doRename(on, off).catch(() => {})
+      const problems: string[] = []
+      if (newName !== name) {
+        // The new jar is in place only if the manifest was already switched over to it.
+        const manifest = await readManifest(c.rec.dir)
+        const installed =
+          manifest.entries.some((e) => e.fileName === newName) &&
+          !manifest.entries.some((e) => e.fileName === name)
+        if (installed) {
+          await disableNew().catch(() => problems.push(newName))
+        }
+      }
+      if (await pathExists(on)) {
+        await doRename(on, off).catch(() => problems.push(name))
+      }
+      if (problems.length && err instanceof AppError) {
+        throw new AppError(
+          err.code,
+          `${err.message} Also could not re-disable ${problems.join(' and ')}; disable ${problems.length > 1 ? 'them' : 'it'} before starting the server.`,
+          err.details
+        )
+      }
       throw err
     }
-    const next = join(c.folder, out.newName)
-    await doRename(next, `${next}${DISABLED}`)
-    const manifest = await readManifest(c.rec.dir)
-    await writeManifest(c.rec.dir, {
-      ...manifest,
-      entries: manifest.entries.map((e) =>
-        e.fileName === out.newName ? { ...e, disabled: true } : e
-      )
-    })
-    return out.value
+    await disableNew()
+    return value
   }
 
   setEnabled(serverId: string, fileName: string, enabled: boolean): Promise<void> {
