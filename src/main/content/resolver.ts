@@ -1,4 +1,5 @@
 import { AppError } from '../errors'
+import { isNotFound } from './http'
 import type { ModrinthClient, ModrinthFile, ModrinthVersion } from './modrinth'
 
 export interface PlanFile {
@@ -39,10 +40,6 @@ export interface ResolveContext {
 }
 
 const TYPE_ORDER: ModrinthVersion['version_type'][] = ['release', 'beta', 'alpha']
-
-function isNotFound(err: unknown): boolean {
-  return err instanceof AppError && err.code === 'MODRINTH_API' && err.details?.status === 404
-}
 
 export function isCompatible(v: ModrinthVersion, loaders: string[], mcVersion: string): boolean {
   return v.game_versions.includes(mcVersion) && v.loaders.some((l) => loaders.includes(l))

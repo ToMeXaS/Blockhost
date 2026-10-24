@@ -244,6 +244,15 @@ export const CONTENT_LABELS: Record<ServerType, ContentLabel | null> = {
   neoforge: 'Mods'
 }
 
+export const CONTENT_SOURCES = ['modrinth', 'hangar', 'spigot'] as const
+export type ContentSource = (typeof CONTENT_SOURCES)[number]
+
+export const CONTENT_SOURCE_LABELS: Record<ContentSource, string> = {
+  modrinth: 'Modrinth',
+  hangar: 'Hangar',
+  spigot: 'SpigotMC'
+}
+
 export interface ContentSearchHit {
   projectId: string
   slug: string

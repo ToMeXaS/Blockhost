@@ -53,7 +53,7 @@ function ctx(
 ): ResolveContext {
   const find = (idOrSlug: string) => {
     const p = projects.find((x) => x.id === idOrSlug || x.slug === idOrSlug)
-    if (!p) throw new AppError('MODRINTH_API', 'not found', { status: 404 })
+    if (!p) throw new AppError('CONTENT_SOURCE_API', 'not found', { status: 404 })
     return p
   }
   return {
@@ -61,7 +61,7 @@ function ctx(
       project: vi.fn(async (id: string) => find(id)),
       version: vi.fn(async (id: string) => {
         const v = versions.find((x) => x.id === id)
-        if (!v) throw new AppError('MODRINTH_API', 'not found', { status: 404 })
+        if (!v) throw new AppError('CONTENT_SOURCE_API', 'not found', { status: 404 })
         return v
       }),
       versions: vi.fn(async (pid: string, loaders: string[], mc: string) =>

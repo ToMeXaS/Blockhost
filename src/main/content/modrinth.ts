@@ -1,10 +1,8 @@
-import { AppError } from '../errors'
+import { createSourceHttp } from './http'
 import type { ContentTarget } from './loaders'
 
 export const MODRINTH_API = 'https://api.modrinth.com/v2'
 export const SEARCH_LIMIT = 20
-const DEFAULT_TIMEOUT_MS = 15_000
-const MAX_RATE_LIMIT_WAIT_S = 60
 
 export interface ModrinthFile {
   url: string
@@ -30,6 +28,7 @@ export interface ModrinthVersion {
   game_versions: string[]
   dependencies: ModrinthDependency[]
   files: ModrinthFile[]
+  date_published?: string
 }
 
 export interface ModrinthProject {
@@ -38,6 +37,17 @@ export interface ModrinthProject {
   title: string
   icon_url: string | null
   server_side: string
+  project_type?: string
+  description?: string
+  body?: string
+  updated?: string
+  downloads?: number
+  license?: { id: string; name: string } | null
+  gallery?: { url: string; title: string | null; ordering: number }[]
+  source_url?: string | null
+  issues_url?: string | null
+  wiki_url?: string | null
+  discord_url?: string | null
 }
 
 export interface ModrinthSearchHit {
@@ -47,6 +57,17 @@ export interface ModrinthSearchHit {
   description: string
   icon_url: string | null
   downloads: number
+  author?: string
+  date_modified?: string
+}
+
+export type ModrinthIndex = 'relevance' | 'downloads' | 'updated' | 'newest'
+
+export interface ModrinthSearchOptions {
+  /** Defaults to relevance with a query, downloads without one. */
+  index?: ModrinthIndex
+  /** OR-group of Modrinth category names. */
+  categories?: string[]
 }
 
 export interface ModrinthClient {
@@ -54,17 +75,21 @@ export interface ModrinthClient {
     target: ContentTarget,
     mcVersion: string,
     query: string,
-    offset: number
+    offset: number,
+    opts?: ModrinthSearchOptions
   ): Promise<{ hits: ModrinthSearchHit[]; total: number }>
   project(idOrSlug: string): Promise<ModrinthProject>
   projects(ids: string[]): Promise<ModrinthProject[]>
   version(id: string): Promise<ModrinthVersion>
   versions(projectId: string, loaders: string[], mcVersion: string): Promise<ModrinthVersion[]>
+  /** Every version of the project, newest first, unfiltered. */
+  allVersions(projectId: string): Promise<ModrinthVersion[]>
   identify(sha1s: string[]): Promise<Record<string, ModrinthVersion>>
   latest(
     sha1s: string[],
     loaders: string[],
-    mcVersion: string
+    mcVersion: string,
+    includeBeta?: boolean
   ): Promise<Record<string, ModrinthVersion>>
 }
 
@@ -85,66 +110,33 @@ export function searchFacets(target: ContentTarget, mcVersion: string): string[]
   ]
 }
 
-const defaultSleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms))
 const enc = (value: unknown): string => encodeURIComponent(JSON.stringify(value))
 
 export function createModrinthClient(opts: ModrinthClientOptions): ModrinthClient {
-  const fetchImpl = opts.fetchImpl ?? fetch
-  const base = opts.base ?? MODRINTH_API
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  const sleep = opts.sleep ?? defaultSleep
-
-  async function send(path: string, body?: unknown): Promise<Response> {
-    const headers: Record<string, string> = { 'User-Agent': opts.userAgent }
-    if (body !== undefined) headers['Content-Type'] = 'application/json'
-    try {
-      return await fetchImpl(`${base}${path}`, {
-        method: body === undefined ? 'GET' : 'POST',
-        headers,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(timeoutMs)
-      })
-    } catch (err) {
-      const name = (err as Error)?.name
-      if (name === 'TimeoutError' || name === 'AbortError') {
-        throw new AppError('NETWORK', 'Modrinth did not respond in time.')
-      }
-      throw new AppError('NETWORK', `Could not reach Modrinth: ${(err as Error).message}`)
-    }
-  }
-
-  async function request<T>(path: string, body?: unknown): Promise<T> {
-    let res = await send(path, body)
-    if (res.status === 429) {
-      const reset = Number(res.headers.get('X-Ratelimit-Reset'))
-      const seconds = Number.isFinite(reset)
-        ? Math.min(Math.max(reset, 1), MAX_RATE_LIMIT_WAIT_S)
-        : 1
-      await sleep(seconds * 1000)
-      res = await send(path, body)
-    }
-    if (!res.ok) {
-      throw new AppError('MODRINTH_API', `Modrinth returned HTTP ${res.status}`, {
-        status: res.status
-      })
-    }
-    try {
-      return (await res.json()) as T
-    } catch {
-      throw new AppError('MODRINTH_API', 'Modrinth returned an unreadable response', {
-        status: res.status
-      })
-    }
-  }
+  const http = createSourceHttp({
+    source: 'modrinth',
+    label: 'Modrinth',
+    base: opts.base ?? MODRINTH_API,
+    userAgent: opts.userAgent,
+    fetchImpl: opts.fetchImpl,
+    timeoutMs: opts.timeoutMs,
+    sleep: opts.sleep,
+    resetHeader: 'X-Ratelimit-Reset'
+  })
+  const request = <T>(path: string, body?: unknown): Promise<T> => http.json<T>(path, body)
 
   return {
-    async search(target, mcVersion, query, offset) {
+    async search(target, mcVersion, query, offset, searchOpts = {}) {
       const q = query.trim()
+      const facets = searchFacets(target, mcVersion)
+      if (searchOpts.categories?.length) {
+        facets.push(searchOpts.categories.map((c) => `categories:${c}`))
+      }
+      const index = searchOpts.index ?? (q ? 'relevance' : 'downloads')
       const parts = [
         ...(q ? [`query=${encodeURIComponent(q)}`] : []),
-        `facets=${enc(searchFacets(target, mcVersion))}`,
-        `index=${q ? 'relevance' : 'downloads'}`,
+        `facets=${enc(facets)}`,
+        `index=${index}`,
         `offset=${offset}`,
         `limit=${SEARCH_LIMIT}`
       ]
@@ -161,6 +153,8 @@ export function createModrinthClient(opts: ModrinthClientOptions): ModrinthClien
       request<ModrinthVersion[]>(
         `/project/${encodeURIComponent(projectId)}/version?loaders=${enc(loaders)}&game_versions=${enc([mcVersion])}`
       ),
+    allVersions: (projectId) =>
+      request<ModrinthVersion[]>(`/project/${encodeURIComponent(projectId)}/version`),
     identify: async (sha1s) =>
       sha1s.length
         ? request<Record<string, ModrinthVersion>>('/version_files', {
@@ -168,15 +162,15 @@ export function createModrinthClient(opts: ModrinthClientOptions): ModrinthClien
             algorithm: 'sha1'
           })
         : {},
-    latest: async (sha1s, loaders, mcVersion) =>
+    latest: async (sha1s, loaders, mcVersion, includeBeta = false) =>
       sha1s.length
         ? request<Record<string, ModrinthVersion>>('/version_files/update', {
             hashes: sha1s,
             algorithm: 'sha1',
             loaders,
             game_versions: [mcVersion],
-            // Only offer stable releases as updates (Modrinth honours this filter).
-            version_types: ['release']
+            // Stable releases only unless the server opted into betas (Modrinth honours this).
+            version_types: includeBeta ? ['release', 'beta'] : ['release']
           })
         : {}
   }

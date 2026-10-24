@@ -12,6 +12,7 @@ import {
   type ServerRecord
 } from '../../shared/types'
 import { AppError } from '../errors'
+import { isSourceDown } from './http'
 import type { DownloadFn } from '../net/download'
 import type { ProcessManager } from '../servers/process'
 import type { ServerStore } from '../servers/store'
@@ -53,13 +54,10 @@ function checkDownloadUrl(url: string, fileName: string): void {
   } catch {
     ok = false
   }
-  if (!ok) throw new AppError('MODRINTH_API', `Unexpected download location for ${fileName}`)
+  if (!ok) throw new AppError('CONTENT_SOURCE_API', `Unexpected download location for ${fileName}`)
 }
 
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err))
-
-const isOfflineError = (err: unknown): boolean =>
-  err instanceof AppError && (err.code === 'NETWORK' || err.code === 'MODRINTH_API')
 
 export interface ContentServiceDeps {
   store: Pick<ServerStore, 'get'>
@@ -141,7 +139,7 @@ export class ContentService {
             })
           }
         } catch (err) {
-          if (!isOfflineError(err)) throw err
+          if (!isSourceDown(err)) throw err
           offline = true
         }
       }
@@ -158,7 +156,7 @@ export class ContentService {
             rec.mcVersion
           )
         } catch (err) {
-          if (!isOfflineError(err)) throw err
+          if (!isSourceDown(err)) throw err
           offline = true
         }
       }

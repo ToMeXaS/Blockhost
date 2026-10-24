@@ -89,7 +89,7 @@ async function setup(
   ]
   const find = (idOrSlug: string) => {
     const p = projects.find((x) => x.id === idOrSlug || x.slug === idOrSlug)
-    if (!p) throw new AppError('MODRINTH_API', 'not found', { status: 404 })
+    if (!p) throw new AppError('CONTENT_SOURCE_API', 'not found', { status: 404 })
     return p
   }
   const client = {
@@ -118,6 +118,7 @@ async function setup(
     projects: vi.fn(async (ids: string[]) => ids.map(find)),
     version: vi.fn(async (id: string) => versions.find((v) => v.id === id)!),
     versions: vi.fn(async (pid: string) => versions.filter((v) => v.project_id === pid)),
+    allVersions: vi.fn(async (pid: string) => versions.filter((v) => v.project_id === pid)),
     identify: vi.fn(async (): Promise<Record<string, ModrinthVersion>> => ({})),
     latest: vi.fn(async (): Promise<Record<string, ModrinthVersion>> => ({}))
   } satisfies ModrinthClient
@@ -469,7 +470,7 @@ describe('ContentService update safety (fix round 1)', () => {
       if (id === NEW_DEP.id) return NEW_DEP
       if (id === SODIUM.id || id === 'sodium') return SODIUM
       if (id === API.id || id === 'fabric-api') return API
-      throw new AppError('MODRINTH_API', 'not found', { status: 404 })
+      throw new AppError('CONTENT_SOURCE_API', 'not found', { status: 404 })
     })
     client.latest.mockResolvedValueOnce({ 'sha1-s1': s2 })
     // Fails specifically for the new dependency's file, regardless of call order, so this
@@ -785,7 +786,7 @@ describe('ContentService final review fixes', () => {
       const { service, versions, download } = await setup()
       versions[1].files[0].url = url
       await expect(service.install(ID, 'sodium')).rejects.toMatchObject({
-        code: 'MODRINTH_API',
+        code: 'CONTENT_SOURCE_API',
         message: 'Unexpected download location for fabric-api-1.jar'
       })
       expect(download).not.toHaveBeenCalled()
