@@ -839,3 +839,28 @@ describe('ContentService providers and v2 manifest', () => {
     expect((await readManifest(dir)).entries[0].sha1).toBe('computed')
   })
 })
+
+describe('ContentService sha1 handling (fix round 1)', () => {
+  it('drops an entry with an empty sha1 whose jar is gone', async () => {
+    const { service, dir, mods } = await setup()
+    await mkdir(mods)
+    await writeManifest(
+      dir,
+      manifestOf([manifestEntry({ fileName: 'gone.jar', projectId: 'GONE', sha1: '' })])
+    )
+    await service.listInstalled(ID)
+    expect((await readManifest(dir)).entries).toEqual([])
+  })
+
+  it('records the on-disk hash when the source gives no sha1', async () => {
+    const { service, dir, versions, hashes } = await setup()
+    versions[0].files[0].hashes.sha1 = undefined as unknown as string
+    hashes['sodium-1.jar'] = 'disk-hash'
+    hashes['fabric-api-1.jar'] = 'api-disk'
+    await service.install(ID, 'sodium')
+    const sha = Object.fromEntries(
+      (await readManifest(dir)).entries.map((e) => [e.fileName, e.sha1])
+    )
+    expect(sha).toEqual({ 'sodium-1.jar': 'disk-hash', 'fabric-api-1.jar': 'sha1-a1' })
+  })
+})

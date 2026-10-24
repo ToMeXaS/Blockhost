@@ -144,8 +144,8 @@ export class ContentService {
 
       // An empty stored sha1 (a source without sha1) counts as known; the computed hash fills it in.
       const known = manifest.entries
-        .filter((e) => e.sha1 === '' || shas.get(e.fileName) === e.sha1)
-        .map((e) => (e.sha1 === '' ? { ...e, sha1: shas.get(e.fileName) ?? '' } : e))
+        .filter((e) => shas.has(e.fileName) && (e.sha1 === '' || shas.get(e.fileName) === e.sha1))
+        .map((e) => (e.sha1 === '' ? { ...e, sha1: shas.get(e.fileName)! } : e))
       const knownNames = new Set(known.map((e) => e.fileName))
       const unknown = files.filter((f) => !knownNames.has(f))
       const entries = [...known]
@@ -464,6 +464,12 @@ export class ContentService {
           ? { ...e, dependencyOf: [...new Set([...e.dependencyOf, ...parents])] }
           : e
       })
+    // Sources without a sha1: record the hash of the jar actually on disk (downloaded or kept).
+    const hashFile = this.deps.hashFile ?? sha1File
+    const shas: string[] = []
+    for (let i = 0; i < plan.length; i++) {
+      shas.push(plan[i].file.sha1 ?? (await hashFile(join(c.folder, names[i]))))
+    }
     const now = new Date().toISOString()
     plan.forEach((item, i) =>
       entries.push({
@@ -474,7 +480,7 @@ export class ContentService {
         title: item.title,
         versionNumber: item.versionNumber,
         iconUrl: item.iconUrl,
-        sha1: item.file.sha1 ?? '',
+        sha1: shas[i],
         dependencyOf: i === 0 && replacing ? replacing.dependencyOf : item.dependencyOf.map(key),
         disabled: false,
         explicit: i === 0 ? (replacing ? replacing.explicit : true) : false,
