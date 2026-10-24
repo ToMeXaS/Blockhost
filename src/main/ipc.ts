@@ -11,6 +11,8 @@ import { isPortFree } from './net/port'
 import {
   backupFileSchema,
   commandSchema,
+  configChangeSchema,
+  configFileIdSchema,
   contentFileSchema,
   contentRefSchema,
   contentSearchSchema,
@@ -113,6 +115,15 @@ export function registerIpc(
   handle('servers:readProperties', z.tuple([idSchema]), (id) => servers.readProperties(id))
   handle('servers:writeProperties', z.tuple([idSchema, propertyEntriesSchema]), (id, entries) =>
     servers.writeProperties(id, entries)
+  )
+  handle('servers:listConfigFiles', z.tuple([idSchema]), (id) => servers.listConfigFiles(id))
+  handle('servers:readConfigFile', z.tuple([idSchema, configFileIdSchema]), (id, fileId) =>
+    servers.readConfigFile(id, fileId)
+  )
+  handle(
+    'servers:writeConfigFile',
+    z.tuple([idSchema, configFileIdSchema, configChangeSchema]),
+    (id, fileId, change) => servers.writeConfigFile(id, fileId, change)
   )
   handle('servers:openFolder', z.tuple([idSchema]), async (id) => {
     const error = await shell.openPath(servers.dir(id))

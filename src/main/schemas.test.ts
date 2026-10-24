@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   commandSchema,
+  configChangeSchema,
+  configFileIdSchema,
   contentFileSchema,
   contentRefSchema,
   contentSearchSchema,
@@ -199,5 +201,39 @@ describe('content schemas', () => {
     expect(contentSearchSchema.parse(req)).toMatchObject({ text: 'sodium' })
     expect(() => contentSearchSchema.parse({ ...req, text: 'x'.repeat(101) })).toThrow()
     expect(() => contentSearchSchema.parse({ ...req, cursor: { modrinth: 10001 } })).toThrow()
+  })
+})
+
+describe('configFileIdSchema', () => {
+  it('accepts allowlisted ids only', () => {
+    expect(configFileIdSchema.safeParse('paper-global').success).toBe(true)
+    expect(configFileIdSchema.safeParse('../server.properties').success).toBe(false)
+  })
+})
+
+describe('configChangeSchema', () => {
+  it('accepts value edits and raw text', () => {
+    expect(
+      configChangeSchema.safeParse({
+        mode: 'values',
+        edits: [
+          { path: ['a', 'b'], value: 1 },
+          { path: ['c'], value: ['x'] },
+          { path: ['d'], value: false }
+        ]
+      }).success
+    ).toBe(true)
+    expect(configChangeSchema.safeParse({ mode: 'raw', text: 'a: 1\n' }).success).toBe(true)
+  })
+
+  it('rejects empty paths, non-finite numbers and unknown modes', () => {
+    expect(
+      configChangeSchema.safeParse({ mode: 'values', edits: [{ path: [], value: 1 }] }).success
+    ).toBe(false)
+    expect(
+      configChangeSchema.safeParse({ mode: 'values', edits: [{ path: ['a'], value: Infinity }] })
+        .success
+    ).toBe(false)
+    expect(configChangeSchema.safeParse({ mode: 'delete' }).success).toBe(false)
   })
 })

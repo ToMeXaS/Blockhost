@@ -1,4 +1,8 @@
 import type {
+  ConfigFileChange,
+  ConfigFileContent,
+  ConfigFileId,
+  ConfigFileInfo,
   CreateServerInput,
   PropertyEntry,
   ServerPatch,
@@ -8,6 +12,7 @@ import type {
 } from '../../shared/types'
 import { AppError } from '../errors'
 import type { JavaResolver } from '../java/resolver'
+import { listConfigFiles, readConfigFile, writeConfigFile } from './configFiles'
 import type { ServerInstaller } from './installer'
 import type { ProcessManager } from './process'
 import { readPropertiesFile, updateProperties, writePropertiesFile } from './properties'
@@ -195,6 +200,18 @@ export class ServerService {
     const portValue = entries.find((e) => e.key === 'server-port')?.value
     const port = portValue && /^\d+$/.test(portValue) ? Number(portValue) : NaN
     if (port >= 1 && port <= 65535 && port !== rec.port) await this.deps.store.update(id, { port })
+  }
+
+  listConfigFiles(id: string): Promise<ConfigFileInfo[]> {
+    return listConfigFiles(this.deps.store.get(id).dir)
+  }
+
+  readConfigFile(id: string, fileId: ConfigFileId): Promise<ConfigFileContent> {
+    return readConfigFile(this.deps.store.get(id).dir, fileId)
+  }
+
+  writeConfigFile(id: string, fileId: ConfigFileId, change: ConfigFileChange): Promise<void> {
+    return writeConfigFile(this.deps.store.get(id).dir, fileId, change)
   }
 
   private assertNotBackingUp(id: string): void {

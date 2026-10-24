@@ -5,6 +5,10 @@ import type {
   BackupList,
   BackupLocation,
   BackupMeta,
+  ConfigFileChange,
+  ConfigFileContent,
+  ConfigFileId,
+  ConfigFileInfo,
   ContentInstallResult,
   ContentOrphan,
   ContentPlanView,
@@ -78,6 +82,11 @@ export const api = {
   readProperties: (id: string) => call<PropertyEntry[]>('servers:readProperties', id),
   writeProperties: (id: string, entries: PropertyEntry[]) =>
     call<void>('servers:writeProperties', id, entries),
+  listConfigFiles: (id: string) => call<ConfigFileInfo[]>('servers:listConfigFiles', id),
+  readConfigFile: (id: string, fileId: ConfigFileId) =>
+    call<ConfigFileContent>('servers:readConfigFile', id, fileId),
+  writeConfigFile: (id: string, fileId: ConfigFileId, change: ConfigFileChange) =>
+    call<void>('servers:writeConfigFile', id, fileId, change),
   openFolder: (id: string) => call<void>('servers:openFolder', id),
   getPlayers: (id: string) => call<PlayerLists>('players:get', id),
   playerAction: (id: string, action: PlayerAction) =>

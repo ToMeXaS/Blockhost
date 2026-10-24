@@ -3,6 +3,7 @@ import { isIP } from 'node:net'
 import { z } from 'zod'
 import {
   BACKUP_INTERVALS,
+  CONFIG_FILE_IDS,
   CONTENT_CATEGORIES,
   CONTENT_SORTS,
   CONTENT_SOURCES,
@@ -96,6 +97,27 @@ export const propertyEntriesSchema = z
     })
   )
   .max(500)
+
+export const configFileIdSchema = z.enum(CONFIG_FILE_IDS)
+
+const configPathSchema = z.array(z.string().max(256)).min(1).max(32)
+
+const configValueSchema = z.union([
+  z.boolean(),
+  z.number(),
+  z.string().max(65536),
+  z.array(z.string().max(4096)).max(1000)
+])
+
+export const configChangeSchema = z.discriminatedUnion('mode', [
+  z.strictObject({
+    mode: z.literal('values'),
+    edits: z
+      .array(z.strictObject({ path: configPathSchema, value: configValueSchema }))
+      .max(2000)
+  }),
+  z.strictObject({ mode: z.literal('raw'), text: z.string().max(2_000_000) })
+])
 
 export const commandSchema = z
   .string()
