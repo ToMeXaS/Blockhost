@@ -253,6 +253,38 @@ export const CONTENT_SOURCE_LABELS: Record<ContentSource, string> = {
   spigot: 'SpigotMC'
 }
 
+export type ContentChannel = 'release' | 'beta' | 'alpha'
+
+export const CONTENT_SORTS = ['relevance', 'downloads', 'updated', 'newest'] as const
+export type ContentSort = (typeof CONTENT_SORTS)[number]
+
+export const CONTENT_CATEGORIES = [
+  'optimization',
+  'admin',
+  'economy',
+  'worldgen',
+  'gameplay',
+  'chat',
+  'protection',
+  'utility',
+  'library'
+] as const
+export type ContentCategory = (typeof CONTENT_CATEGORIES)[number]
+
+export const CONTENT_CATEGORY_LABELS: Record<ContentCategory, string> = {
+  optimization: 'Optimization',
+  admin: 'Admin & moderation',
+  economy: 'Economy',
+  worldgen: 'World generation',
+  gameplay: 'Gameplay',
+  chat: 'Chat',
+  protection: 'Protection',
+  utility: 'Utility',
+  library: 'Library'
+}
+
+export type ContentLinkKind = 'page' | 'issues' | 'source' | 'wiki' | 'discord' | 'other'
+
 export interface ContentSearchHit {
   projectId: string
   slug: string
