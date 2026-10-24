@@ -1,15 +1,17 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { isMap, isScalar, isSeq, parseDocument, type YAMLMap } from 'yaml'
+import { isMap, isScalar, isSeq, parseDocument, stringify, type Document, type YAMLMap, type YAMLSeq } from 'yaml'
 import {
   CONFIG_FILE_IDS,
+  type ConfigEdit,
+  type ConfigFileChange,
   type ConfigFileContent,
   type ConfigFileId,
   type ConfigFileInfo,
   type ConfigNode
 } from '../../shared/types'
 import { AppError } from '../errors'
-import { pathExists } from '../util/fs'
+import { pathExists, writeFileAtomic } from '../util/fs'
 
 const FILES: Record<ConfigFileId, string> = {
   bukkit: 'bukkit.yml',
@@ -118,4 +120,125 @@ export async function readConfigFile(dir: string, id: ConfigFileId): Promise<Con
   const text = await readConfigText(dir, id)
   const error = yamlError(text)
   return error ? { id, text, nodes: [], error } : { id, text, nodes: flattenYaml(text) }
+}
+
+interface Splice {
+  start: number
+  end: number
+  text: string
+}
+
+function findNode(doc: Document, path: string[]): unknown {
+  let node: unknown = doc.contents
+  for (const segment of path) {
+    if (!isMap(node)) return undefined
+    const pair = node.items.find((p) => isScalar(p.key) && String(p.key.value) === segment)
+    if (!pair) return undefined
+    node = pair.value
+  }
+  return node
+}
+
+function scalarText(value: string, type?: string | null): string {
+  if (/[\r\n]/.test(value)) {
+    throw new AppError('CONFIG_VALUE', 'Line breaks are not allowed here; use Raw mode')
+  }
+  const defaultStringType = type === 'QUOTE_DOUBLE' || type === 'QUOTE_SINGLE' ? type : 'PLAIN'
+  return stringify(value, { defaultStringType, lineWidth: 0 }).trimEnd()
+}
+
+function spliceFor(doc: Document, text: string, edit: ConfigEdit, eol: string): Splice {
+  const where = edit.path.join('.')
+  const node = findNode(doc, edit.path)
+  const range = (node as { range?: Range } | null | undefined)?.range
+  if (node === undefined || isMap(node) || !range) {
+    throw new AppError('CONFIG_PATH', `No setting at ${where}`)
+  }
+  const [start, end] = range
+  const { kind } = describeLeaf(node, text)
+  const { value } = edit
+  const wrongType = (): AppError =>
+    new AppError('CONFIG_VALUE', `Wrong value type for ${where}`)
+
+  switch (kind) {
+    case 'bool':
+      if (typeof value !== 'boolean') throw wrongType()
+      return { start, end, text: String(value) }
+    case 'number': {
+      if (typeof value !== 'number' || !Number.isFinite(value)) throw wrongType()
+      let out = String(value)
+      if (/^[-+]?\d*\.\d/.test(text.slice(start, end)) && !/[.e]/i.test(out)) out += '.0'
+      return { start, end, text: out }
+    }
+    case 'string':
+      if (typeof value !== 'string') throw wrongType()
+      return { start, end, text: scalarText(value, (node as { type?: string }).type) }
+    case 'list': {
+      if (!Array.isArray(value)) throw wrongType()
+      const items = value.map((item) => scalarText(item))
+      if ((node as YAMLSeq).flow) {
+        return { start, end, text: items.length ? `[ ${items.join(', ')} ]` : '[]' }
+      }
+      if (items.length === 0) {
+        // `[]` can't start its own line under the key, so pull it up onto the key's line.
+        let from = start
+        while (from > 0 && /\s/.test(text[from - 1])) from--
+        if (text[from - 1] !== ':') {
+          throw new AppError('CONFIG_VALUE', `${where} can only be emptied in Raw mode`)
+        }
+        // A block list's range ends after its final newline; keep it.
+        const tail = text.slice(start, end).endsWith('\n') ? eol : ''
+        return { start: from, end, text: ' []' + tail }
+      }
+      const column = start - (text.lastIndexOf('\n', start - 1) + 1)
+      const body = items.map((item) => `- ${item}`).join(eol + ' '.repeat(column))
+      return { start, end, text: body + (text.slice(start, end).endsWith('\n') ? eol : '') }
+    }
+    default:
+      throw new AppError('CONFIG_VALUE', `${where} can only be edited in Raw mode`)
+  }
+}
+
+function assertValidYaml(text: string): void {
+  const error = yamlError(text)
+  if (error) throw new AppError('CONFIG_INVALID', `Invalid YAML: ${error}`)
+}
+
+/** Applies value edits by splicing new text over each value's range, so nothing else changes. */
+export function applyEdits(text: string, edits: ConfigEdit[]): string {
+  assertValidYaml(text)
+  const doc = parseDocument(text)
+  const eol = text.includes('\r\n') ? '\r\n' : '\n'
+  const latest = new Map(edits.map((edit) => [JSON.stringify(edit.path), edit]))
+  const splices = [...latest.values()]
+    .map((edit) => spliceFor(doc, text, edit, eol))
+    .sort((a, b) => b.start - a.start)
+  let out = text
+  for (const s of splices) out = out.slice(0, s.start) + s.text + out.slice(s.end)
+
+  assertValidYaml(out)
+  const check = parseDocument(out)
+  for (const edit of latest.values()) {
+    const written = describeLeaf(findNode(check, edit.path), out).value
+    if (JSON.stringify(written) !== JSON.stringify(edit.value)) {
+      throw new AppError('CONFIG_VALUE', `Could not safely write ${edit.path.join('.')}`)
+    }
+  }
+  return out
+}
+
+export async function writeConfigFile(
+  dir: string,
+  id: ConfigFileId,
+  change: ConfigFileChange
+): Promise<void> {
+  const current = await readConfigText(dir, id)
+  let next: string
+  if (change.mode === 'raw') {
+    assertValidYaml(change.text)
+    next = change.text
+  } else {
+    next = applyEdits(current, change.edits)
+  }
+  await writeFileAtomic(configFilePath(dir, id), next)
 }
