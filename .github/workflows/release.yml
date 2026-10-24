@@ -1,6 +1,7 @@
-# Builds the Windows installer for a pushed version tag and uploads it to a draft
-# GitHub release, with notes built from the commit messages since the previous
-# tag. Review the notes, then publish the draft so the auto-updater picks it up.
+# Builds the Windows installer for a pushed version tag and publishes it as a GitHub
+# release, with notes built from the commit messages since the previous tag. The
+# release stays a draft while the installer uploads, so the auto-updater never sees
+# a half-uploaded release, then it is published and announced on Discord.
 #
 #   npm version minor && git push --follow-tags
 
@@ -12,6 +13,9 @@ on:
 
 permissions:
   contents: write
+  # To start the Discord announcement: a release published with GITHUB_TOKEN does
+  # not trigger announce.yml's `release: published` event by itself.
+  actions: write
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -100,3 +104,9 @@ jobs:
 
       - name: Build the installer and upload it to the draft
         run: npx electron-builder --win --publish always -c.publish.releaseType=draft
+
+      - name: Publish the release
+        run: gh release edit "$TAG" --draft=false --latest
+
+      - name: Announce the release on Discord
+        run: gh workflow run announce.yml --ref main -f tag="$TAG"
