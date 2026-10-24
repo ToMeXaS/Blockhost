@@ -46,7 +46,7 @@ describe('Modrinth (network)', () => {
     expect(result.installed[0].title).toMatch(/Fabric API/)
 
     const list = await service.listInstalled(ID)
-    expect(list.offline).toBe(false)
+    expect(list.offline).toEqual([])
     expect(list.items).toContainEqual(
       expect.objectContaining({ source: 'modrinth', projectId: hit!.projectId })
     )

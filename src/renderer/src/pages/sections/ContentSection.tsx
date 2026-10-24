@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   CONTENT_LABELS,
+  CONTENT_SOURCE_LABELS,
   type ContentSearchHit,
   type InstalledContent,
   type InstalledContentList,
@@ -169,10 +170,12 @@ export function ContentSection({ server }: { server: ServerView }) {
             !installedError && <p className="text-sm text-faint">Loading…</p>
           ) : (
             <>
-              {installed.offline && (
+              {installed.offline.length > 0 && (
                 <Notice tone="warn">
                   <div className="flex items-center gap-3">
-                    Can&apos;t reach Modrinth — showing local files only.
+                    Can&apos;t reach{' '}
+                    {installed.offline.map((s) => CONTENT_SOURCE_LABELS[s]).join(', ')} — some
+                    details are missing.
                     <Button size="sm" onClick={() => void loadInstalled()}>
                       Retry
                     </Button>

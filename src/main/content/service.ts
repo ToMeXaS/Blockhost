@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { readdir, rename, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readdir, rename, rm, stat } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import {
   CONTENT_SOURCE_LABELS,
@@ -29,6 +29,16 @@ import {
 } from './manifest'
 import { pickVersion, planInstall, type Plan } from './resolver'
 import type { ContentProvider, Version } from './types'
+
+const DISABLED = '.disabled'
+
+interface JarFile {
+  /** Name on disk, including any ".disabled" suffix. */
+  disk: string
+  /** Name without the suffix; what the manifest and the UI use. */
+  name: string
+  disabled: boolean
+}
 
 const RESERVED_DEVICE_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i
 const FORBIDDEN_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
@@ -63,6 +73,18 @@ function checkDownloadUrl(url: string, fileName: string, hosts: string[]): void 
   if (!ok) throw new AppError('CONTENT_SOURCE_API', `Unexpected download location for ${fileName}`)
 }
 
+async function mapLimit<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>
+): Promise<void> {
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) await fn(items[next++])
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
+
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
 export interface ContentServiceDeps {
@@ -70,6 +92,8 @@ export interface ContentServiceDeps {
   processes: Pick<ProcessManager, 'status'>
   providers: ContentProvider[]
   download: DownloadFn
+  /** Called with the number of available updates after every installed-list refresh. */
+  onUpdates?: (serverId: string, count: number) => void
   hashFile?: (path: string) => Promise<string>
   /** File operations used when replacing and removing jars; defaults to node's. */
   fsOps?: { rename?: typeof rename; rm?: typeof rm }
@@ -140,84 +164,123 @@ export class ContentService {
       const files = await this.jarFiles(folder)
       const manifest = await readManifest(rec.dir)
       const shas = new Map<string, string>()
-      for (const f of files) shas.set(f, await hashFile(join(folder, f)))
+      for (const f of files) shas.set(f.name, await hashFile(join(folder, f.disk)))
+      const onDisk = new Map(files.map((f) => [f.name, f]))
 
       // An empty stored sha1 (a source without sha1) counts as known; the computed hash fills it in.
       const known = manifest.entries
         .filter((e) => shas.has(e.fileName) && (e.sha1 === '' || shas.get(e.fileName) === e.sha1))
-        .map((e) => (e.sha1 === '' ? { ...e, sha1: shas.get(e.fileName)! } : e))
+        .map((e) => ({
+          ...(e.sha1 === '' ? { ...e, sha1: shas.get(e.fileName)! } : e),
+          disabled: onDisk.get(e.fileName)!.disabled
+        }))
       const knownNames = new Set(known.map((e) => e.fileName))
-      const unknown = files.filter((f) => !knownNames.has(f))
-      const entries = [...known]
-      let offline = false
+      const unknown = files.filter((f) => !knownNames.has(f.name))
+      const entries: ManifestEntry[] = [...known]
+      let identifyOffline = false
 
       if (unknown.length) {
         try {
-          const found = await this.provider('modrinth').identify!(unknown.map((f) => shas.get(f)!))
+          const found = await this.provider('modrinth').identify!(
+            unknown.map((f) => shas.get(f.name)!)
+          )
           for (const f of unknown) {
-            const v = found[shas.get(f)!]
+            const v = found[shas.get(f.name)!]
             if (!v) continue
             entries.push({
-              fileName: f,
+              fileName: f.name,
               source: 'modrinth',
               projectId: v.projectId,
               versionId: v.versionId,
               title: v.title,
               versionNumber: v.versionNumber,
               iconUrl: v.iconUrl,
-              sha1: shas.get(f)!,
+              sha1: shas.get(f.name)!,
               dependencyOf: [],
-              disabled: false,
+              disabled: f.disabled,
               explicit: true,
               installedAt: new Date().toISOString()
             })
           }
         } catch (err) {
           if (!isSourceDown(err)) throw err
-          offline = true
+          identifyOffline = true
         }
       }
 
       if (!sameEntries(entries, manifest.entries))
         await writeManifest(rec.dir, { ...manifest, entries })
 
-      let updates: Record<string, Version> = {}
-      const mr = entries.filter((e) => e.source === 'modrinth')
-      if (!offline && mr.length) {
+      const offline = new Set<ContentSource>(identifyOffline ? ['modrinth'] : [])
+      const updates = new Map<string, Version>() // fileName -> newer version
+      for (const provider of this.providers.values()) {
+        const mine = entries.filter((e) => e.source === provider.id)
+        if (!mine.length || offline.has(provider.id)) continue
         try {
-          updates = await this.provider('modrinth').latest!(
-            mr.map((e) => e.sha1),
-            target,
-            rec.mcVersion,
-            manifest.includeBeta
-          )
+          if (provider.latest) {
+            const found = await provider.latest(
+              mine.map((e) => e.sha1),
+              target,
+              rec.mcVersion,
+              manifest.includeBeta
+            )
+            for (const e of mine) {
+              const v = found[e.sha1]
+              if (v && v.id !== e.versionId) updates.set(e.fileName, v)
+            }
+          } else {
+            await mapLimit(mine, 4, async (e) => {
+              const v = pickVersion(
+                await provider.versions(e.projectId, target, rec.mcVersion),
+                manifest.includeBeta
+              )
+              if (v && v.id !== e.versionId) updates.set(e.fileName, v)
+            })
+          }
         } catch (err) {
           if (!isSourceDown(err)) throw err
-          offline = true
+          offline.add(provider.id)
         }
       }
 
       const byName = new Map(entries.map((e) => [e.fileName, e]))
       const titleOf = new Map(entries.map((e) => [entryKey(e), e.title]))
-      const items: InstalledContent[] = files.map((f) => {
-        const e = byName.get(f)
-        if (!e)
-          return { fileName: f, title: f, versionNumber: null, source: 'manual', neededBy: [] }
-        const u = updates[e.sha1]
-        return {
-          fileName: f,
-          title: e.title,
-          versionNumber: e.versionNumber,
-          source: e.source,
-          projectId: e.projectId,
-          ...(u && u.id !== e.versionId
-            ? { update: { versionId: u.id, versionNumber: u.versionNumber } }
-            : {}),
-          neededBy: e.dependencyOf.filter((k) => titleOf.has(k)).map((k) => titleOf.get(k)!)
-        }
-      })
+      const items: InstalledContent[] = await Promise.all(
+        files.map(async (f): Promise<InstalledContent> => {
+          const e = byName.get(f.name)
+          if (!e) {
+            const mtime = (await stat(join(folder, f.disk))).mtime.toISOString()
+            return {
+              fileName: f.name,
+              title: f.name,
+              versionNumber: null,
+              source: 'manual',
+              iconUrl: null,
+              disabled: f.disabled,
+              isDependency: false,
+              installedAt: mtime,
+              neededBy: []
+            }
+          }
+          const u = updates.get(e.fileName)
+          return {
+            fileName: f.name,
+            title: e.title,
+            versionNumber: e.versionNumber,
+            source: e.source,
+            projectId: e.projectId,
+            iconUrl: e.iconUrl,
+            disabled: f.disabled,
+            isDependency: e.dependencyOf.length > 0,
+            installedAt: e.installedAt,
+            ...(u ? { update: { versionId: u.id, versionNumber: u.versionNumber } } : {}),
+            neededBy: e.dependencyOf.filter((k) => titleOf.has(k)).map((k) => titleOf.get(k)!)
+          }
+        })
+      )
       items.sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()))
-      return { items, offline }
+      this.deps.onUpdates?.(serverId, items.filter((i) => i.update).length)
+      return { items, offline: [...offline], includeBeta: manifest.includeBeta }
     })
   }
 
@@ -249,25 +312,108 @@ export class ContentService {
       const latest = await this.newestFor(c, provider, entry, manifest.includeBeta)
       if (!latest) return { installed: [], restartNeeded: false }
 
-      // Exclude every manifest entry for this project (not just the one being updated) so the
-      // resolver doesn't mistake the project for already installed and skip it entirely.
-      const forPlan: Manifest = {
-        ...manifest,
-        entries: manifest.entries.filter((e) => entryKey(e) !== entryKey(entry))
+      return this.keepingDisabled(c, name, async () => {
+        // Exclude every manifest entry for this project (not just the one being updated) so the
+        // resolver doesn't mistake the project for already installed and skip it entirely.
+        const forPlan: Manifest = {
+          ...manifest,
+          entries: manifest.entries.filter((e) => entryKey(e) !== entryKey(entry))
+        }
+        const plan = await this.planFor(c, provider, forPlan, entry.projectId, latest.id)
+        if (plan.items[0]?.projectId !== entry.projectId) {
+          throw new AppError(
+            'CONTENT_NO_COMPATIBLE_VERSION',
+            `No compatible update was found for ${entry.title}.`
+          )
+        }
+
+        // Only drop the entry being replaced, so a duplicate entry for the same project
+        // (e.g. a second jar for the same mod) is left alone.
+        const base: Manifest = {
+          ...manifest,
+          entries: manifest.entries.filter((e) => e !== entry)
+        }
+        const wrote = await this.apply(c, provider, base, plan, entry)
+        return {
+          value: this.result(c, plan, wrote),
+          newName: safeFileName(plan.items[0].file.filename)
+        }
+      })
+    })
+  }
+
+  /**
+   * Runs an update of `name`. If that jar is disabled it is renamed to its enabled name first
+   * (the replace logic works on `.jar` files), and the new root jar is disabled again after a
+   * successful update; on failure the old jar goes back to `.disabled`. The server is stopped.
+   */
+  private async keepingDisabled<T>(
+    c: Ctx,
+    name: string,
+    run: () => Promise<{ value: T; newName: string }>
+  ): Promise<T> {
+    const doRename = this.deps.fsOps?.rename ?? rename
+    const on = join(c.folder, name)
+    const off = `${on}${DISABLED}`
+    const wasDisabled = (await pathExists(off)) && !(await pathExists(on))
+    if (!wasDisabled) return (await run()).value
+    await doRename(off, on)
+    let out: { value: T; newName: string }
+    try {
+      out = await run()
+    } catch (err) {
+      if (await pathExists(on)) await doRename(on, off).catch(() => {})
+      throw err
+    }
+    const next = join(c.folder, out.newName)
+    await doRename(next, `${next}${DISABLED}`)
+    const manifest = await readManifest(c.rec.dir)
+    await writeManifest(c.rec.dir, {
+      ...manifest,
+      entries: manifest.entries.map((e) =>
+        e.fileName === out.newName ? { ...e, disabled: true } : e
+      )
+    })
+    return out.value
+  }
+
+  setEnabled(serverId: string, fileName: string, enabled: boolean): Promise<void> {
+    return this.serial(serverId, async () => {
+      const c = this.ctx(serverId)
+      this.requireStopped(c)
+      const name = safeFileName(fileName)
+      const on = join(c.folder, name)
+      const off = `${on}${DISABLED}`
+      const [from, to] = enabled ? [off, on] : [on, off]
+      if (!(await pathExists(from))) {
+        if (await pathExists(to)) return // already in the requested state
+        throw new AppError('NOT_FOUND', `${name} is not installed.`)
       }
-      const plan = await this.planFor(c, provider, forPlan, entry.projectId, latest.id)
-      if (plan.items[0]?.projectId !== entry.projectId) {
+      if (await pathExists(to)) {
         throw new AppError(
-          'CONTENT_NO_COMPATIBLE_VERSION',
-          `No compatible update was found for ${entry.title}.`
+          'CONTENT_FILE_EXISTS',
+          `${basename(to)} already exists. Remove one of the two files first.`
         )
       }
+      await (this.deps.fsOps?.rename ?? rename)(from, to)
+      const manifest = await readManifest(c.rec.dir)
+      if (manifest.entries.some((e) => e.fileName === name)) {
+        await writeManifest(c.rec.dir, {
+          ...manifest,
+          entries: manifest.entries.map((e) =>
+            e.fileName === name ? { ...e, disabled: !enabled } : e
+          )
+        })
+      }
+    })
+  }
 
-      // Only drop the entry being replaced, so a duplicate entry for the same project
-      // (e.g. a second jar for the same mod) is left alone.
-      const base: Manifest = { ...manifest, entries: manifest.entries.filter((e) => e !== entry) }
-      const wrote = await this.apply(c, provider, base, plan, entry)
-      return this.result(c, plan, wrote)
+  setIncludeBeta(serverId: string, value: boolean): Promise<void> {
+    return this.serial(serverId, async () => {
+      const { rec } = this.ctx(serverId)
+      const manifest = await readManifest(rec.dir)
+      if (manifest.includeBeta !== value)
+        await writeManifest(rec.dir, { ...manifest, includeBeta: value })
     })
   }
 
@@ -276,7 +422,9 @@ export class ContentService {
       const c = this.ctx(serverId)
       this.requireStopped(c)
       const name = safeFileName(fileName)
-      await (this.deps.fsOps?.rm ?? rm)(join(c.folder, name), { force: true })
+      const rmFile = this.deps.fsOps?.rm ?? rm
+      await rmFile(join(c.folder, name), { force: true })
+      await rmFile(join(c.folder, `${name}${DISABLED}`), { force: true })
       const manifest = await readManifest(c.rec.dir)
       const entries = manifest.entries.filter((e) => e.fileName !== name)
       if (entries.length !== manifest.entries.length)
@@ -508,17 +656,24 @@ export class ContentService {
     }
   }
 
-  private async jarFiles(folder: string): Promise<string[]> {
+  private async jarFiles(folder: string): Promise<JarFile[]> {
+    let dirents
     try {
-      const entries = await readdir(folder, { withFileTypes: true })
-      return entries
-        .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.jar'))
-        .map((e) => e.name)
-        .sort()
+      dirents = await readdir(folder, { withFileTypes: true })
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw err
     }
+    return dirents
+      .filter((e) => e.isFile())
+      .flatMap((e): JarFile[] => {
+        const lower = e.name.toLowerCase()
+        if (lower.endsWith('.jar')) return [{ disk: e.name, name: e.name, disabled: false }]
+        if (lower.endsWith(`.jar${DISABLED}`))
+          return [{ disk: e.name, name: e.name.slice(0, -DISABLED.length), disabled: true }]
+        return []
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
   }
 
   private serial<T>(serverId: string, fn: () => Promise<T>): Promise<T> {

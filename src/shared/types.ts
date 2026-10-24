@@ -301,11 +301,16 @@ export interface ContentSearchResult {
 }
 
 export interface InstalledContent {
+  /** Without the ".disabled" suffix. */
   fileName: string
   title: string
   versionNumber: string | null
   source: ContentSource | 'manual'
   projectId?: string
+  iconUrl: string | null
+  disabled: boolean
+  isDependency: boolean
+  installedAt: string | null
   update?: { versionId: string; versionNumber: string }
   /** Titles of installed content that pulled this in as a dependency. */
   neededBy: string[]
@@ -313,8 +318,9 @@ export interface InstalledContent {
 
 export interface InstalledContentList {
   items: InstalledContent[]
-  /** True when Modrinth could not be reached; items are local files only. */
-  offline: boolean
+  /** Sources that could not be reached; their items lack identification/update info. */
+  offline: ContentSource[]
+  includeBeta: boolean
 }
 
 export interface ContentInstallResult {
