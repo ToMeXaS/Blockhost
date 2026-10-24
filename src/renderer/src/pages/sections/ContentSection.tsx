@@ -23,6 +23,7 @@ function findScroller(el: HTMLElement | null): HTMLElement | null {
 export function ContentSection({ server }: { server: ServerView }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const savedScroll = useRef(0)
+  const [lastInstalled, setLastInstalled] = useState<ContentRef | null>(null)
   const [open, setOpen] = useState<{ ref: ContentRef; hit?: ContentSearchHit } | null>(null)
   const label = CONTENT_LABELS[server.type] ?? 'Mods'
   const noun = label === 'Plugins' ? 'plugins' : 'mods'
@@ -71,7 +72,10 @@ export function ContentSection({ server }: { server: ServerView }) {
           projectRef={open.ref}
           fallback={open.hit}
           onBack={closeProject}
-          onChanged={installed}
+          onChanged={(restart, ref) => {
+            setLastInstalled({ ...ref })
+            installed(restart)
+          }}
         />
       )}
       <div className={open ? 'hidden' : 'space-y-4'}>
@@ -88,6 +92,7 @@ export function ContentSection({ server }: { server: ServerView }) {
             available={available}
             onOpen={(hit) => openProject({ source: hit.source, projectId: hit.projectId }, hit)}
             onInstalled={installed}
+            installedRef={lastInstalled}
           />
         )}
       </div>

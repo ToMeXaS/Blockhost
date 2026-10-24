@@ -1,8 +1,9 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   CONTENT_CATEGORIES,
   CONTENT_CATEGORY_LABELS,
   type ContentCategory,
+  type ContentRef,
   type ContentSearchHit,
   type ContentSort,
   type ContentSource,
@@ -33,14 +34,21 @@ interface Props {
   available: { source: ContentSource; label: string }[]
   onOpen: (hit: ContentSearchHit) => void
   onInstalled: (restartNeeded: boolean) => void
+  /** A project installed elsewhere (the detail view); flagged installed in the results. */
+  installedRef?: ContentRef | null
 }
 
-export function BrowsePanel({ server, noun, available, onOpen, onInstalled }: Props) {
+export function BrowsePanel({ server, noun, available, onOpen, onInstalled, installedRef }: Props) {
   // Stable identity: the hook re-searches whenever this array changes.
   const sourceIds = useMemo(() => available.map((a) => a.source), [available])
   const s = useContentSearch(server.id, sourceIds)
   const toast = useToast()
   const [busy, setBusy] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (installedRef) s.markInstalled(installedRef)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [installedRef])
 
   async function install(hit: ContentSearchHit) {
     setBusy(`${hit.source}:${hit.projectId}`)

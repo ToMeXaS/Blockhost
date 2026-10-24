@@ -28,7 +28,7 @@ interface Props {
   projectRef: ContentRef
   fallback?: ContentSearchHit
   onBack: () => void
-  onChanged: (restartNeeded: boolean) => void
+  onChanged: (restartNeeded: boolean, ref: ContentRef) => void
 }
 
 export function ProjectDetail({ server, projectRef, fallback, onBack, onChanged }: Props) {
@@ -95,7 +95,7 @@ export function ProjectDetail({ server, projectRef, fallback, onBack, onChanged 
         toast.success(
           `Installed ${main.title} ${main.versionNumber}${deps.length ? ` + ${deps.map((d) => d.title).join(', ')}` : ''}.`
         )
-      onChanged(r.restartNeeded)
+      onChanged(r.restartNeeded, projectRef)
       setReload((n) => n + 1)
     } catch (err) {
       toast.error(errorMessage(err))
