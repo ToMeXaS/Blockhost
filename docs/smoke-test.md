@@ -49,7 +49,9 @@ Run on a clean Windows 10/11 machine (no Java installed) using `dist/Blockhost-<
 
 - [ ] Paper: chips show Modrinth, Hangar, SpigotMC with counts; toggling a chip re-runs the search.
 - [ ] Install one plugin from each source; each shows its source badge in Installed.
-- [ ] A SpigotMC premium result and any non-jar resource (from any source) open the browser instead of installing.
+- [ ] A SpigotMC premium result opens its page in the browser instead of installing.
+- [ ] An externally hosted SpigotMC result opens the browser instead of installing.
+- [ ] A SpigotMC resource that isn't a .jar opens the browser instead of installing.
 - [ ] Category "Chat" + text query: SpigotMC chip says "no matching category".
 - [ ] Open a project: description, links, versions; "Install this version" installs that version.
 - [ ] Fabric: no chip row; install a mod with a dependency (e.g. Sodium → Fabric API) and see "Will also install".
