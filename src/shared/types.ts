@@ -328,6 +328,16 @@ export interface ContentInstallResult {
   restartNeeded: boolean
 }
 
+export interface ContentUpdateAllResult {
+  updated: { title: string; from: string; to: string }[]
+  failed: { title: string; message: string }[]
+}
+
+export interface ContentOrphan {
+  fileName: string
+  title: string
+}
+
 /** One performance reading for a running server. `null` means "no reading". */
 export interface StatsPoint {
   at: number

@@ -7,7 +7,9 @@ import {
   CONTENT_SOURCE_LABELS,
   SERVER_TYPE_LABELS,
   type ContentInstallResult,
+  type ContentOrphan,
   type ContentSearchResult,
+  type ContentUpdateAllResult,
   type InstalledContent,
   type ContentSource,
   type InstalledContentList,
@@ -83,6 +85,26 @@ async function mapLimit<T>(
     while (next < items.length) await fn(items[next++])
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
+
+/** Entries that only existed to serve `removedKey` (directly or through other orphans). */
+export function findOrphans(entries: ManifestEntry[], removedKey: string): ManifestEntry[] {
+  const gone = new Set([removedKey])
+  const orphans: ManifestEntry[] = []
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const e of entries) {
+      const key = entryKey(e)
+      if (gone.has(key) || e.explicit || e.dependencyOf.length === 0) continue
+      if (e.dependencyOf.every((k) => gone.has(k))) {
+        gone.add(key)
+        orphans.push(e)
+        changed = true
+      }
+    }
+  }
+  return orphans
 }
 
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err))
@@ -299,44 +321,98 @@ export class ContentService {
     return this.serial(serverId, async () => {
       const c = this.ctx(serverId)
       this.requireStopped(c)
-      const name = safeFileName(fileName)
+      return this.updateOne(c, fileName)
+    })
+  }
+
+  updateAll(serverId: string): Promise<ContentUpdateAllResult> {
+    return this.serial(serverId, async () => {
+      const c = this.ctx(serverId)
+      this.requireStopped(c)
       const manifest = await readManifest(c.rec.dir)
+      const result: ContentUpdateAllResult = { updated: [], failed: [] }
+      // Each update rewrites the manifest, so walk a snapshot and skip entries that are gone.
+      for (const snap of manifest.entries) {
+        const entry = (await readManifest(c.rec.dir)).entries.find(
+          (e) => e.fileName === snap.fileName
+        )
+        if (!entry) continue
+        let newer: Version | null
+        try {
+          newer = await this.newestFor(c, this.provider(entry.source), entry, manifest.includeBeta)
+        } catch (err) {
+          result.failed.push({ title: entry.title, message: errorMessage(err) })
+          continue
+        }
+        if (!newer) continue
+        try {
+          await this.updateOne(c, entry.fileName)
+          result.updated.push({
+            title: entry.title,
+            from: entry.versionNumber,
+            to: newer.versionNumber
+          })
+        } catch (err) {
+          result.failed.push({ title: entry.title, message: errorMessage(err) })
+        }
+      }
+      return result
+    })
+  }
+
+  orphansOf(serverId: string, fileName: string): Promise<ContentOrphan[]> {
+    return this.serial(serverId, async () => {
+      const { rec } = this.ctx(serverId)
+      const name = safeFileName(fileName)
+      const manifest = await readManifest(rec.dir)
       const entry = manifest.entries.find((e) => e.fileName === name)
-      if (!entry) {
+      if (!entry) return []
+      return findOrphans(manifest.entries, entryKey(entry)).map((e) => ({
+        fileName: e.fileName,
+        title: e.title
+      }))
+    })
+  }
+
+  /** Updates one jar. The caller holds the queue and has checked the server is stopped. */
+  private async updateOne(c: Ctx, fileName: string): Promise<ContentInstallResult> {
+    const name = safeFileName(fileName)
+    const manifest = await readManifest(c.rec.dir)
+    const entry = manifest.entries.find((e) => e.fileName === name)
+    if (!entry) {
+      throw new AppError(
+        'NOT_FOUND',
+        `${name} was not installed from Modrinth, so Blockhost cannot update it.`
+      )
+    }
+    const provider = this.provider(entry.source)
+    const latest = await this.newestFor(c, provider, entry, manifest.includeBeta)
+    if (!latest) return { installed: [], restartNeeded: false }
+
+    return this.keepingDisabled(c, name, async (setNewName) => {
+      // Exclude every manifest entry for this project (not just the one being updated) so the
+      // resolver doesn't mistake the project for already installed and skip it entirely.
+      const forPlan: Manifest = {
+        ...manifest,
+        entries: manifest.entries.filter((e) => entryKey(e) !== entryKey(entry))
+      }
+      const plan = await this.planFor(c, provider, forPlan, entry.projectId, latest.id)
+      if (plan.items[0]?.projectId !== entry.projectId) {
         throw new AppError(
-          'NOT_FOUND',
-          `${name} was not installed from Modrinth, so Blockhost cannot update it.`
+          'CONTENT_NO_COMPATIBLE_VERSION',
+          `No compatible update was found for ${entry.title}.`
         )
       }
-      const provider = this.provider(entry.source)
-      const latest = await this.newestFor(c, provider, entry, manifest.includeBeta)
-      if (!latest) return { installed: [], restartNeeded: false }
 
-      return this.keepingDisabled(c, name, async (setNewName) => {
-        // Exclude every manifest entry for this project (not just the one being updated) so the
-        // resolver doesn't mistake the project for already installed and skip it entirely.
-        const forPlan: Manifest = {
-          ...manifest,
-          entries: manifest.entries.filter((e) => entryKey(e) !== entryKey(entry))
-        }
-        const plan = await this.planFor(c, provider, forPlan, entry.projectId, latest.id)
-        if (plan.items[0]?.projectId !== entry.projectId) {
-          throw new AppError(
-            'CONTENT_NO_COMPATIBLE_VERSION',
-            `No compatible update was found for ${entry.title}.`
-          )
-        }
-
-        // Only drop the entry being replaced, so a duplicate entry for the same project
-        // (e.g. a second jar for the same mod) is left alone.
-        setNewName(safeFileName(plan.items[0].file.filename))
-        const base: Manifest = {
-          ...manifest,
-          entries: manifest.entries.filter((e) => e !== entry)
-        }
-        const wrote = await this.apply(c, provider, base, plan, entry)
-        return this.result(c, plan, wrote)
-      })
+      // Only drop the entry being replaced, so a duplicate entry for the same project
+      // (e.g. a second jar for the same mod) is left alone.
+      setNewName(safeFileName(plan.items[0].file.filename))
+      const base: Manifest = {
+        ...manifest,
+        entries: manifest.entries.filter((e) => e !== entry)
+      }
+      const wrote = await this.apply(c, provider, base, plan, entry)
+      return this.result(c, plan, wrote)
     })
   }
 
@@ -446,7 +522,11 @@ export class ContentService {
     })
   }
 
-  remove(serverId: string, fileName: string): Promise<void> {
+  remove(
+    serverId: string,
+    fileName: string,
+    opts: { removeOrphans?: boolean } = {}
+  ): Promise<void> {
     return this.serial(serverId, async () => {
       const c = this.ctx(serverId)
       this.requireStopped(c)
@@ -455,7 +535,16 @@ export class ContentService {
       await rmFile(join(c.folder, name), { force: true })
       await rmFile(join(c.folder, `${name}${DISABLED}`), { force: true })
       const manifest = await readManifest(c.rec.dir)
-      const entries = manifest.entries.filter((e) => e.fileName !== name)
+      const removed = manifest.entries.find((e) => e.fileName === name)
+      const orphans =
+        opts.removeOrphans && removed ? findOrphans(manifest.entries, entryKey(removed)) : []
+      for (const o of orphans) {
+        const orphanName = safeFileName(o.fileName)
+        await rmFile(join(c.folder, orphanName), { force: true })
+        await rmFile(join(c.folder, `${orphanName}${DISABLED}`), { force: true })
+      }
+      const gone = new Set([name, ...orphans.map((o) => o.fileName)])
+      const entries = manifest.entries.filter((e) => !gone.has(e.fileName))
       if (entries.length !== manifest.entries.length)
         await writeManifest(c.rec.dir, { ...manifest, entries })
     })
