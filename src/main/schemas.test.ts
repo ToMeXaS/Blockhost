@@ -4,6 +4,7 @@ import {
   contentFileSchema,
   contentRefSchema,
   contentSearchSchema,
+  versionIdSchema,
   createServerSchema,
   httpsUrlSchema,
   javaMajorSchema,
@@ -178,6 +179,13 @@ describe('content schemas', () => {
     expect(contentFileSchema.parse('sodium-1.jar')).toBe('sodium-1.jar')
     for (const bad of ['../x.jar', 'x.exe', 'CON.jar'])
       expect(() => contentFileSchema.parse(bad)).toThrow()
+  })
+
+  it('rejects dot-only ids', () => {
+    for (const bad of ['.', '..'])
+      expect(() => contentRefSchema.parse({ source: 'modrinth', projectId: bad })).toThrow()
+    expect(() => versionIdSchema.parse('..')).toThrow()
+    expect(versionIdSchema.parse('v1.2.3')).toBe('v1.2.3')
   })
 
   it('validates search requests', () => {

@@ -154,7 +154,10 @@ export const playerActionSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('setWhitelistEnabled'), enabled: z.boolean(), overwriteCorrupt })
 ])
 
-const projectIdSchema = z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/, 'Not a project id')
+const projectIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_.-]{1,64}$/, 'Not a project id')
+  .refine((s) => !/^\.+$/.test(s), 'Not a project id')
 export const contentRefSchema = z.strictObject({
   source: z.enum(CONTENT_SOURCES),
   projectId: projectIdSchema
@@ -167,7 +170,10 @@ export const contentSearchSchema = z.strictObject({
   sort: z.enum(CONTENT_SORTS),
   cursor: z.partialRecord(z.enum(CONTENT_SOURCES), z.union([offset, z.literal('done')])).nullable()
 })
-export const versionIdSchema = z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/, 'Not a version id')
+export const versionIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_.-]{1,64}$/, 'Not a version id')
+  .refine((s) => !/^\.+$/.test(s), 'Not a version id')
 export const contentFileSchema = z
   .string()
   .max(200)
