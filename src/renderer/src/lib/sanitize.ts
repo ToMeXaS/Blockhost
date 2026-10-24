@@ -38,8 +38,12 @@ export function renderDescription(d: { format: 'markdown' | 'html'; body: string
       'object',
       'embed',
       'video',
-      'audio'
+      'audio',
+      'picture',
+      'source',
+      'svg',
+      'math'
     ],
-    FORBID_ATTR: ['style']
+    FORBID_ATTR: ['style', 'srcset', 'background', 'class', 'id', 'name']
   })
 }

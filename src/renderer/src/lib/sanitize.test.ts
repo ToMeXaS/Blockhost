@@ -58,4 +58,34 @@ describe('renderDescription', () => {
     expect(out).not.toContain('<img')
     expect(out).not.toContain('data:')
   })
+
+  it('removes srcset, background, svg and picture/source vectors', () => {
+    const out = renderDescription({
+      format: 'html',
+      body: '<img src="https://a/x.png" srcset="http://evil/a.png 2x"><table background="http://evil/b.png"><tr><td>t</td></tr></table><svg><image href="http://evil/c.png"></image><a href="https://evil">s</a></svg><picture><source srcset="http://evil/d.png"></picture>'
+    })
+    for (const bad of ['srcset', 'background', 'evil', '<svg', '<image', '<picture', '<source']) {
+      expect(out).not.toContain(bad)
+    }
+  })
+
+  it('strips class, id and name', () => {
+    const out = renderDescription({
+      format: 'html',
+      body: '<div class="fixed inset-0 z-50" id="root" name="x">a</div><a name="y">b</a>'
+    })
+    for (const bad of ['class=', 'id=', 'name=']) expect(out).not.toContain(bad)
+  })
+
+  it('drops javascript: hrefs from markdown and obfuscated html, keeps mailto:', () => {
+    expect(
+      renderDescription({ format: 'markdown', body: '[x](javascript:alert(1))' })
+    ).not.toContain('javascript:')
+    expect(
+      renderDescription({ format: 'html', body: '<a href=" JAVASCRIPT:alert(1)">x</a>' })
+    ).not.toMatch(/href/i)
+    expect(renderDescription({ format: 'html', body: '<a href="mailto:a@b.co">m</a>' })).toContain(
+      'href="mailto:a@b.co"'
+    )
+  })
 })
