@@ -1,0 +1,13 @@
+import { createModrinthClient } from '../modrinth'
+import type { ContentProvider } from '../types'
+import { modrinthProvider } from './modrinth'
+
+export interface ProviderOptions {
+  userAgent: string
+  fetchImpl?: typeof fetch
+}
+
+/** Every content source, in the order search results are interleaved. */
+export function createContentProviders(opts: ProviderOptions): ContentProvider[] {
+  return [modrinthProvider(createModrinthClient(opts))]
+}
