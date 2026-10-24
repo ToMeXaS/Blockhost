@@ -1,5 +1,6 @@
 import { createModrinthClient } from '../modrinth'
 import type { ContentProvider } from '../types'
+import { hangarProvider } from './hangar'
 import { modrinthProvider } from './modrinth'
 
 export interface ProviderOptions {
@@ -9,5 +10,5 @@ export interface ProviderOptions {
 
 /** Every content source, in the order search results are interleaved. */
 export function createContentProviders(opts: ProviderOptions): ContentProvider[] {
-  return [modrinthProvider(createModrinthClient(opts))]
+  return [modrinthProvider(createModrinthClient(opts)), hangarProvider(opts)]
 }
