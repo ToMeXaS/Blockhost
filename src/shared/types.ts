@@ -103,6 +103,56 @@ export interface PropertyEntry {
   value: string
 }
 
+/** YAML config files Blockhost can edit, in display order. Paths live in the main process. */
+export const CONFIG_FILE_IDS = [
+  'bukkit',
+  'spigot',
+  'commands',
+  'help',
+  'permissions',
+  'paper-legacy',
+  'paper-global',
+  'paper-world-defaults',
+  'purpur',
+  'pufferfish'
+] as const
+export type ConfigFileId = (typeof CONFIG_FILE_IDS)[number]
+
+export interface ConfigFileInfo {
+  id: ConfigFileId
+  label: string
+  /** Path relative to the server folder, for display. */
+  path: string
+}
+
+export type ConfigValue = boolean | number | string | string[]
+export type ConfigNodeKind = 'bool' | 'number' | 'string' | 'list' | 'map' | 'complex'
+
+/** One key of a YAML file. `map` nodes carry no value; `complex` values are their YAML text. */
+export interface ConfigNode {
+  path: string[]
+  kind: ConfigNodeKind
+  value?: ConfigValue
+  /** Original text of a number, so the editor can tell 1.0 from 1. */
+  source?: string
+  comment?: string
+}
+
+export interface ConfigFileContent {
+  id: ConfigFileId
+  text: string
+  nodes: ConfigNode[]
+  /** Set when the file is not valid YAML; `nodes` is then empty. */
+  error?: string
+}
+
+export interface ConfigEdit {
+  path: string[]
+  value: ConfigValue
+}
+
+export type ConfigFileChange = { mode: 'values'; edits: ConfigEdit[] } | { mode: 'raw'; text: string }
+
 export interface SystemInfo {
   totalRamMb: number
   defaultServersDir: string
