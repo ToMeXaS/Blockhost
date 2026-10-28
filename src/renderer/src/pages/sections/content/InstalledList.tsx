@@ -32,9 +32,19 @@ interface Props {
   noun: string
   refreshKey: number
   onOpenProject: (ref: { source: ContentSource; projectId: string }) => void
+  onCounts?: (counts: { total: number; updates: number }) => void
+  /** Switches to the browse tab; offered when nothing is installed. */
+  onBrowse?: () => void
 }
 
-export function InstalledList({ server, noun, refreshKey, onOpenProject }: Props) {
+export function InstalledList({
+  server,
+  noun,
+  refreshKey,
+  onOpenProject,
+  onCounts,
+  onBrowse
+}: Props) {
   const locked =
     server.status === 'starting' || server.status === 'running' || server.status === 'stopping'
   const toast = useToast()
@@ -63,6 +73,9 @@ export function InstalledList({ server, noun, refreshKey, onOpenProject }: Props
     [items, filter, sort, text]
   )
   const updates = countFor(items, 'updates')
+  useEffect(() => {
+    if (list) onCounts?.({ total: list.items.length, updates })
+  }, [list, updates, onCounts])
 
   async function act(key: string, action: () => Promise<void>) {
     setBusy(key)
@@ -123,7 +136,7 @@ export function InstalledList({ server, noun, refreshKey, onOpenProject }: Props
   const setBeta = (value: boolean) => act('beta', () => api.contentSetIncludeBeta(server.id, value))
 
   return (
-    <Card title={`Installed ${noun}`}>
+    <Card>
       <div className="space-y-3">
         {error && (
           <div className="flex items-center gap-3 text-sm text-muted">
@@ -197,9 +210,18 @@ export function InstalledList({ server, noun, refreshKey, onOpenProject }: Props
         {!list ? (
           !error && <p className="text-sm text-faint">Loading…</p>
         ) : shown.length === 0 ? (
-          <p className="text-sm text-faint">
-            {items.length ? `No ${noun} match.` : `No ${noun} installed yet.`}
-          </p>
+          items.length ? (
+            <p className="text-sm text-faint">No {noun} match.</p>
+          ) : (
+            <div className="flex flex-col items-center gap-3 py-8 text-sm text-faint">
+              No {noun} installed yet.
+              {onBrowse && (
+                <Button variant="primary" onClick={onBrowse}>
+                  Browse {noun}
+                </Button>
+              )}
+            </div>
+          )
         ) : (
           <ul className="divide-y divide-border-soft">
             {shown.map((item) => (
@@ -241,6 +263,16 @@ export function InstalledList({ server, noun, refreshKey, onOpenProject }: Props
                   </div>
                 </button>
                 <SourceBadge source={item.source} />
+                {item.update && (
+                  <Button
+                    size="sm"
+                    disabled={locked || busy !== null}
+                    title={locked ? `Stop the server to update ${noun}` : undefined}
+                    onClick={() => void update(item)}
+                  >
+                    {busy === item.fileName ? 'Updating…' : 'Update'}
+                  </Button>
+                )}
                 <Switch
                   label={`${item.disabled ? 'Enable' : 'Disable'} ${item.title}`}
                   checked={!item.disabled}
