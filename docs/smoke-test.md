@@ -58,6 +58,13 @@ Run on a clean Windows 10/11 machine (no Java installed) using `dist/Blockhost-<
 - [ ] Stop the server: disable a mod (file becomes .jar.disabled), re-enable it.
 - [ ] Update all with at least one update available; summary toast appears.
 - [ ] Remove a mod whose dependency nothing else needs; accept the cleanup prompt; both files gone.
+- [ ] Installed and Browse are tabs; the Installed tab shows the item count and an "N updates" badge when updates exist.
+- [ ] With nothing installed, the Installed tab's "Browse" button switches to the Browse tab.
+- [ ] An item with an update shows an Update button in its row; it is disabled while the server runs.
+- [ ] Paper, search "LuckPerms": one row with Modrinth, Hangar and SpigotMC badges and combined downloads; each badge opens that site's page.
+- [ ] Two different projects with the same name from different authors show as separate rows.
+- [ ] Scrolling Browse results keeps the chips, search, category and sort pinned at the top.
+- [ ] A project page shows the title, links and an "Install <version>" button in its header.
 - [ ] Include beta versions on → update check can offer betas.
 - [ ] Unplug the network: installed list still shows, with "Couldn't check … for updates".
 - [ ] Restart the server: everything installed loads.

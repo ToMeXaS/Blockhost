@@ -30,6 +30,8 @@ export function ContentSection({ server }: { server: ServerView }) {
   const [available, setAvailable] = useState<{ source: ContentSource; label: string }[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
   const [restartNeeded, setRestartNeeded] = useState(false)
+  const [tab, setTab] = useState<'installed' | 'browse'>('installed')
+  const [counts, setCounts] = useState<{ total: number; updates: number } | null>(null)
 
   useEffect(() => {
     void api.contentSources(server.id).then(setAvailable, () => setAvailable([]))
@@ -79,21 +81,57 @@ export function ContentSection({ server }: { server: ServerView }) {
         />
       )}
       <div className={open ? 'hidden' : 'space-y-4'}>
-        <InstalledList
-          server={server}
-          noun={noun}
-          refreshKey={refreshKey}
-          onOpenProject={(ref) => openProject(ref)}
-        />
         {available.length > 0 && (
-          <BrowsePanel
+          <div role="tablist" aria-label={label} className="flex gap-1 border-b border-border">
+            {(['installed', 'browse'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className={`-mb-px flex items-center gap-2 border-b-2 px-3 pb-2.5 pt-1 text-sm font-medium transition-colors ${
+                  tab === t
+                    ? 'border-accent text-text'
+                    : 'border-transparent text-muted hover:text-text'
+                }`}
+              >
+                {t === 'installed' ? 'Installed' : `Browse ${noun}`}
+                {t === 'installed' && counts && (
+                  <span className="rounded-sm bg-panel-2 px-1.5 font-mono text-xs text-muted">
+                    {counts.total}
+                  </span>
+                )}
+                {t === 'installed' && counts && counts.updates > 0 && (
+                  <span className="rounded-sm bg-warn-bg px-1.5 text-xs text-warn">
+                    {counts.updates} {counts.updates === 1 ? 'update' : 'updates'}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className={tab === 'installed' || !available.length ? '' : 'hidden'}>
+          <InstalledList
             server={server}
             noun={noun}
-            available={available}
-            onOpen={(hit) => openProject({ source: hit.source, projectId: hit.projectId }, hit)}
-            onInstalled={installed}
-            installedRef={lastInstalled}
+            refreshKey={refreshKey}
+            onOpenProject={(ref) => openProject(ref)}
+            onCounts={setCounts}
+            onBrowse={available.length ? () => setTab('browse') : undefined}
           />
+        </div>
+        {available.length > 0 && (
+          <div className={tab === 'browse' ? '' : 'hidden'}>
+            <BrowsePanel
+              server={server}
+              noun={noun}
+              available={available}
+              onOpen={(hit) => openProject({ source: hit.source, projectId: hit.projectId }, hit)}
+              onInstalled={installed}
+              installedRef={lastInstalled}
+            />
+          </div>
         )}
       </div>
     </div>
