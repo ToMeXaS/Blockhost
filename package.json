@@ -1,6 +1,6 @@
 {
   "name": "blockhost",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Easy Minecraft server manager for Windows",
   "main": "./out/main/index.js",
   "author": "ToMeXaS",
