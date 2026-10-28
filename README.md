@@ -6,9 +6,15 @@ A Windows app that sets up and runs Minecraft Java Edition servers in a few clic
 - Downloads the right Java (Eclipse Temurin) automatically, or uses your own
 - Dashboard with players, TPS, CPU and memory, a last-hour performance chart, world sizes and
   disk usage
-- Live console with commands, `server.properties` editor, RAM, JVM and disk-limit settings
+- Live console with commands; RAM, JVM and disk-limit settings
+- Config editor: a searchable, categorised `server.properties` editor, plus grouped, searchable
+  editing of `bukkit.yml`, `spigot.yml`, Paper's configs and other YAML files that keeps their
+  comments and layout (or edit the raw text)
 - Players: who's online, for how long and in which dimension; ops, whitelist and bans
-- Mods and plugins from Modrinth, with dependencies, updates and removal
+- Mods and plugins from Modrinth, Hangar and SpigotMC, searched together with categories and
+  sorting; a project page with versions, gallery and a dependency preview; dependencies installed
+  automatically; enable, disable, update one or all, and removal that cleans up orphaned
+  dependencies
 - Backups on demand or every 1–24 hours, with retention; restore in place or as a new server
 - Shows LAN and public addresses with a port-forwarding guide, or shares the server through a
   free playit.gg tunnel without port forwarding
@@ -20,7 +26,7 @@ A Windows app that sets up and runs Minecraft Java Edition servers in a few clic
 npm install
 npm run dev               # start the app with hot reload
 npm test                  # unit tests
-npm run test:integration  # real download + start of a Paper server (slow, needs internet)
+npm run test:integration  # real downloads from Paper, Modrinth, Hangar, Spiget and playit (slow, needs internet)
 npm run build:win         # build dist/Blockhost-<version>-setup.exe
 ```
 
@@ -40,13 +46,16 @@ Updating or reinstalling the app leaves servers, settings and backups alone.
 
 Pushing a `v*` tag runs the [Release workflow](.github/workflows/release.yml): it checks the tag
 matches `package.json`, runs the tests, builds `Blockhost-<version>-setup.exe` and uploads it with
-its `.blockmap` and `latest.yml` to a **draft** GitHub release on `ToMeXaS/blockhost`.
+its `.blockmap` and `latest.yml` to a draft GitHub release on `ToMeXaS/blockhost`, then publishes the
+release and announces it on Discord. The release stays a draft only while the installer uploads, so
+installed apps never see a half-uploaded release.
 
 The draft's notes are written from the commit messages since the previous tag, so write them as
 [conventional commits](https://www.conventionalcommits.org/): `feat:` goes under *New*, `fix:` under
 *Fixes*, other types under *Other changes*, and `ci`, `docs`, `test`, `chore`, `build` and `style`
-are left out. Review the draft, then publish it. Installed apps check on launch, every 15 minutes and
-on wake, download the update in the background, and install it silently once the user chooses to.
+are left out. Installed apps check on launch, every 15 minutes and on wake (unless automatic updates
+are turned off in settings), download the update in the background, and install it once the user
+chooses to.
 
 To publish from your machine instead, set `GH_TOKEN` (PowerShell: `$env:GH_TOKEN = gh auth token`)
 and run `npm run release`.
@@ -57,6 +66,8 @@ SmartScreen warning on first install only.
 ## Architecture
 
 All side effects run in the Electron main process (`src/main`): providers per server type, Java
-management, the process manager, and the server, player, content, backup and tunnel services. The
+management, the process manager, and the server, player, config, content, backup and tunnel
+services. Mod and plugin sources (Modrinth, Hangar, Spiget) are adapters behind one content
+provider interface (`src/main/content/providers`). The
 sandboxed renderer (`src/renderer`) reaches them only through the allow-listed `window.blockhost`
 bridge (`src/preload`, `src/shared/api.ts`), and every call is validated with zod.
