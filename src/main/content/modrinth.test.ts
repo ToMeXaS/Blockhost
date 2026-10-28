@@ -160,11 +160,11 @@ describe('createModrinthClient', () => {
       { status: 429, body: {} }
     )
     await expect(client.project('nope')).rejects.toMatchObject({
-      code: 'MODRINTH_API',
+      code: 'CONTENT_SOURCE_API',
       details: { status: 404 }
     })
     await expect(client.project('busy')).rejects.toMatchObject({
-      code: 'MODRINTH_API',
+      code: 'CONTENT_SOURCE_API',
       details: { status: 429 }
     })
 
@@ -190,5 +190,27 @@ describe('createModrinthClient', () => {
       code: 'NETWORK',
       message: expect.stringContaining('did not respond')
     })
+  })
+
+  it('adds a category facet and honours an explicit index', async () => {
+    const { seen, client } = fake({ body: { hits: [], total_hits: 0 } })
+    await client.search(contentTarget('fabric')!, '1.21.4', '', 0, {
+      index: 'updated',
+      categories: ['optimization', 'utility']
+    })
+    const p = params(seen[0].url)
+    expect(p.get('index')).toBe('updated')
+    expect(JSON.parse(p.get('facets')!)).toContainEqual([
+      'categories:optimization',
+      'categories:utility'
+    ])
+  })
+
+  it('lists all versions and asks for betas only when included', async () => {
+    const { seen, client } = fake({ body: [] }, { body: {} })
+    await client.allVersions('AANobbMI')
+    expect(seen[0].url).toBe('https://mr.test/v2/project/AANobbMI/version')
+    await client.latest(['h'], ['fabric'], '1.21.4', true)
+    expect(seen[1].body).toMatchObject({ version_types: ['release', 'beta'] })
   })
 })

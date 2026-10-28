@@ -23,7 +23,7 @@ const LABELS: Record<Exclude<Section, 'content'>, string> = {
   overview: 'Dashboard',
   console: 'Console',
   players: 'Players',
-  properties: 'Properties',
+  properties: 'Config',
   backups: 'Backups',
   connect: 'Connect',
   settings: 'Settings'

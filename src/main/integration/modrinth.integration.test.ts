@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ContentService } from '../content/service'
-import { createModrinthClient } from '../content/modrinth'
+import { createContentProviders } from '../content/providers'
 import { downloadFile } from '../net/download'
 import { ServerStore } from '../servers/store'
 import { tempDir } from '../test-utils'
@@ -32,19 +32,27 @@ describe('Modrinth (network)', () => {
     const service = new ContentService({
       store,
       processes: { status: () => 'stopped' },
-      client: createModrinthClient({ userAgent: 'Blockhost-tests (github.com/ToMeXaS/blockhost)' }),
+      providers: createContentProviders({
+        userAgent: 'Blockhost-tests (github.com/ToMeXaS/blockhost)'
+      }),
       download: downloadFile
     })
 
-    const found = await service.search(ID, 'fabric api', 0)
+    const found = await service.search(ID, {
+      text: 'fabric api',
+      sources: ['modrinth'],
+      category: null,
+      sort: 'relevance',
+      cursor: null
+    })
     const hit = found.hits.find((h) => h.slug === 'fabric-api')
     expect(hit).toBeDefined()
 
-    const result = await service.install(ID, hit!.projectId)
+    const result = await service.install(ID, { source: hit!.source, projectId: hit!.projectId })
     expect(result.installed[0].title).toMatch(/Fabric API/)
 
     const list = await service.listInstalled(ID)
-    expect(list.offline).toBe(false)
+    expect(list.offline).toEqual([])
     expect(list.items).toContainEqual(
       expect.objectContaining({ source: 'modrinth', projectId: hit!.projectId })
     )

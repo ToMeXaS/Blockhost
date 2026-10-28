@@ -18,6 +18,12 @@ export interface DownloadOptions {
   retries?: number
   retryDelayMs?: number
   fetchImpl?: typeof fetch
+  /** When set, the final URL (after redirects) must be on one of these hosts. */
+  allowedHosts?: string[]
+  /** The file must start with the zip magic bytes (every .jar does). */
+  expectZip?: boolean
+  /** The exact number of bytes the file must have. */
+  expectedSize?: number
 }
 
 export type DownloadFn = (opts: DownloadOptions) => Promise<void>
@@ -36,6 +42,7 @@ export const downloadFile: DownloadFn = async (opts) => {
     } catch (err) {
       lastError = err
       await rm(`${opts.dest}.part`, { force: true })
+      if (err instanceof AppError && err.code === 'DOWNLOAD_BLOCKED') throw err
     }
   }
   if (lastError instanceof AppError) throw lastError
@@ -54,13 +61,32 @@ async function attemptDownload(opts: DownloadOptions): Promise<void> {
     throw new AppError('HTTP', `Download of ${opts.url} failed with HTTP ${res.status}`)
   }
 
+  if (opts.allowedHosts) {
+    const finalUrl = res.url || opts.url
+    let ok = false
+    try {
+      const u = new URL(finalUrl)
+      ok = u.protocol === 'https:' && opts.allowedHosts.includes(u.hostname)
+    } catch {
+      ok = false
+    }
+    if (!ok) {
+      throw new AppError(
+        'DOWNLOAD_BLOCKED',
+        `Refusing to download ${basename(opts.dest)} from ${finalUrl}`
+      )
+    }
+  }
+
   const total = Number(res.headers.get('content-length')) || undefined
   const part = `${opts.dest}.part`
   const hash = opts.hash ? createHash(opts.hash.algo) : null
   let received = 0
+  let head = Buffer.alloc(0)
   const meter = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
       received += chunk.length
+      if (head.length < 4) head = Buffer.concat([head, chunk]).subarray(0, 4)
       hash?.update(chunk)
       opts.onProgress?.(received, total)
       callback(null, chunk)
@@ -74,6 +100,12 @@ async function attemptDownload(opts: DownloadOptions): Promise<void> {
     createWriteStream(part)
   )
 
+  if (opts.expectZip && !head.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) {
+    throw new AppError('DOWNLOAD_INVALID', `${basename(opts.dest)} is not a valid .jar file`)
+  }
+  if (opts.expectedSize !== undefined && received !== opts.expectedSize) {
+    throw new AppError('DOWNLOAD_INVALID', `${basename(opts.dest)} has the wrong size`)
+  }
   if (hash && opts.hash) {
     const actual = hash.digest('hex')
     if (actual.toLowerCase() !== opts.hash.value.toLowerCase()) {

@@ -11,20 +11,22 @@ import { isPortFree } from './net/port'
 import {
   backupFileSchema,
   commandSchema,
+  configChangeSchema,
+  configFileIdSchema,
   contentFileSchema,
-  contentOffsetSchema,
-  contentQuerySchema,
+  contentRefSchema,
+  contentSearchSchema,
   createServerSchema,
   httpsUrlSchema,
   idSchema,
   javaMajorSchema,
   playerActionSchema,
   portSchema,
-  projectRefSchema,
   propertyEntriesSchema,
   restoreAsNewSchema,
   serverPatchSchema,
   serverTypeSchema,
+  versionIdSchema,
   versionSchema
 } from './schemas'
 import type { Services } from './services'
@@ -114,6 +116,15 @@ export function registerIpc(
   handle('servers:writeProperties', z.tuple([idSchema, propertyEntriesSchema]), (id, entries) =>
     servers.writeProperties(id, entries)
   )
+  handle('servers:listConfigFiles', z.tuple([idSchema]), (id) => servers.listConfigFiles(id))
+  handle('servers:readConfigFile', z.tuple([idSchema, configFileIdSchema]), (id, fileId) =>
+    servers.readConfigFile(id, fileId)
+  )
+  handle(
+    'servers:writeConfigFile',
+    z.tuple([idSchema, configFileIdSchema, configChangeSchema]),
+    (id, fileId, change) => servers.writeConfigFile(id, fileId, change)
+  )
   handle('servers:openFolder', z.tuple([idSchema]), async (id) => {
     const error = await shell.openPath(servers.dir(id))
     if (error) throw new AppError('OPEN_FAILED', error)
@@ -174,20 +185,48 @@ export function registerIpc(
   handle('tunnel:status', z.tuple([idSchema]), (id) => tunnels.status(id))
   handle('tunnel:retry', z.tuple([idSchema]), (id) => tunnels.retry(id))
 
+  handle('content:sources', z.tuple([idSchema]), (id) => content.sources(id))
+  handle('content:search', z.tuple([idSchema, contentSearchSchema]), (id, req) =>
+    content.search(id, req)
+  )
+  handle('content:project', z.tuple([idSchema, contentRefSchema]), (id, ref) =>
+    content.project(id, ref)
+  )
+  handle('content:versions', z.tuple([idSchema, contentRefSchema, z.boolean()]), (id, ref, all) =>
+    content.versions(id, ref, all)
+  )
   handle(
-    'content:search',
-    z.tuple([idSchema, contentQuerySchema, contentOffsetSchema]),
-    (id, query, offset) => content.search(id, query, offset)
+    'content:plan',
+    z.tuple([idSchema, contentRefSchema, versionIdSchema.optional()]),
+    (id, ref, v?: string) => content.plan(id, ref, v)
   )
   handle('content:installed', z.tuple([idSchema]), (id) => content.listInstalled(id))
-  handle('content:install', z.tuple([idSchema, projectRefSchema]), (id, projectId) =>
-    content.install(id, projectId)
+  handle(
+    'content:install',
+    z.tuple([idSchema, contentRefSchema, versionIdSchema.optional()]),
+    (id, ref, v?: string) => content.install(id, ref, v)
   )
   handle('content:update', z.tuple([idSchema, contentFileSchema]), (id, fileName) =>
     content.update(id, fileName)
   )
-  handle('content:remove', z.tuple([idSchema, contentFileSchema]), (id, fileName) =>
-    content.remove(id, fileName)
+  handle(
+    'content:remove',
+    z.tuple([
+      idSchema,
+      contentFileSchema,
+      z.strictObject({ removeOrphans: z.boolean() }).optional()
+    ]),
+    (id, fileName, opts?: { removeOrphans: boolean }) => content.remove(id, fileName, opts)
+  )
+  handle('content:setEnabled', z.tuple([idSchema, contentFileSchema, z.boolean()]), (id, f, on) =>
+    content.setEnabled(id, f, on)
+  )
+  handle('content:updateAll', z.tuple([idSchema]), (id) => content.updateAll(id))
+  handle('content:orphans', z.tuple([idSchema, contentFileSchema]), (id, f) =>
+    content.orphansOf(id, f)
+  )
+  handle('content:setIncludeBeta', z.tuple([idSchema, z.boolean()]), (id, v) =>
+    content.setIncludeBeta(id, v)
   )
 
   handle('java:install', z.tuple([javaMajorSchema]), async (major) => {

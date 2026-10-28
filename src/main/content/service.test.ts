@@ -5,10 +5,12 @@ import type { ServerStatus, ServerType } from '../../shared/types'
 import { AppError } from '../errors'
 import type { DownloadOptions } from '../net/download'
 import { ServerStore } from '../servers/store'
-import { tempDir } from '../test-utils'
+import { manifestEntry, manifestOf, tempDir } from '../test-utils'
 import { readManifest, writeManifest } from './manifest'
 import type { ModrinthClient, ModrinthProject, ModrinthVersion } from './modrinth'
-import { ContentService, safeFileName } from './service'
+import { modrinthProvider } from './providers/modrinth'
+import { ContentService, findOrphans, safeFileName } from './service'
+import type { ContentProvider, Version } from './types'
 
 const ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const SODIUM: ModrinthProject = {
@@ -18,6 +20,25 @@ const SODIUM: ModrinthProject = {
   icon_url: null,
   server_side: 'optional'
 }
+const hangarVersion = (id: string, projectId: string): Version => ({
+  id,
+  projectId,
+  versionNumber: `${id}-num`,
+  channel: 'release',
+  publishedAt: null,
+  mcVersions: ['1.21.4'],
+  loaders: ['paper'],
+  file: {
+    url: `https://hangarcdn.papermc.io/${id}.jar`,
+    externalUrl: null,
+    filename: `${id}.jar`,
+    size: 3,
+    hash: { algo: 'sha256', value: `sha256-${id}` },
+    sha1: null
+  },
+  dependencies: []
+})
+
 const API: ModrinthProject = {
   id: 'P7dR8mSH',
   slug: 'fabric-api',
@@ -62,6 +83,8 @@ async function setup(
     type?: ServerType
     status?: ServerStatus
     fsOps?: { rename?: typeof rename; rm?: typeof rm }
+    extraProvider?: boolean
+    onUpdates?: (serverId: string, count: number) => void
   } = {}
 ) {
   const root = await tempDir()
@@ -89,7 +112,7 @@ async function setup(
   ]
   const find = (idOrSlug: string) => {
     const p = projects.find((x) => x.id === idOrSlug || x.slug === idOrSlug)
-    if (!p) throw new AppError('MODRINTH_API', 'not found', { status: 404 })
+    if (!p) throw new AppError('CONTENT_SOURCE_API', 'not found', { status: 404 })
     return p
   }
   const client = {
@@ -117,7 +140,10 @@ async function setup(
     project: vi.fn(async (id: string) => find(id)),
     projects: vi.fn(async (ids: string[]) => ids.map(find)),
     version: vi.fn(async (id: string) => versions.find((v) => v.id === id)!),
-    versions: vi.fn(async (pid: string) => versions.filter((v) => v.project_id === pid)),
+    versions: vi.fn(async (pid: string, _l: string[], mc: string) =>
+      versions.filter((v) => v.project_id === pid && v.game_versions.includes(mc))
+    ),
+    allVersions: vi.fn(async (pid: string) => versions.filter((v) => v.project_id === pid)),
     identify: vi.fn(async (): Promise<Record<string, ModrinthVersion>> => ({})),
     latest: vi.fn(async (): Promise<Record<string, ModrinthVersion>> => ({}))
   } satisfies ModrinthClient
@@ -129,16 +155,57 @@ async function setup(
   })
   const hashes: Record<string, string> = {}
   const processes = { status: vi.fn((): ServerStatus => opts.status ?? 'stopped') }
+  const providersExtra = {
+    versions: vi.fn(async (_projectId?: string): Promise<Version[]> => [])
+  }
+  const extra: ContentProvider = {
+    id: 'hangar',
+    label: 'Hangar',
+    supports: (t) => t.projectType === 'plugin',
+    downloadHosts: ['hangarcdn.papermc.io'],
+    categories: {},
+    search: vi.fn(async () => ({ hits: [], total: 0 })),
+    project: vi.fn(async (id: string) => ({
+      id,
+      slug: id,
+      title: id,
+      author: null,
+      summary: '',
+      iconUrl: null,
+      downloads: 0,
+      updatedAt: null,
+      license: null,
+      description: { format: 'markdown' as const, body: '' },
+      gallery: [],
+      links: [],
+      pageUrl: ''
+    })),
+    versions: providersExtra.versions,
+    allVersions: vi.fn(async () => [])
+  }
   const service = new ContentService({
     store,
     processes,
-    client,
+    providers: opts.extraProvider ? [modrinthProvider(client), extra] : [modrinthProvider(client)],
+    onUpdates: opts.onUpdates,
     download,
     hashFile: async (p) => hashes[basename(p)] ?? `unknown-${basename(p)}`,
     fsOps: opts.fsOps
   })
   const mods = join(dir, 'mods')
-  return { store, dir, mods, client, versions, download, downloads, hashes, processes, service }
+  return {
+    store,
+    dir,
+    mods,
+    client,
+    versions,
+    download,
+    downloads,
+    hashes,
+    processes,
+    service,
+    providersExtra
+  }
 }
 
 describe('safeFileName', () => {
@@ -169,60 +236,20 @@ describe('safeFileName', () => {
 describe('ContentService', () => {
   it('refuses servers without mods or plugins', async () => {
     const { service } = await setup({ type: 'vanilla' })
-    await expect(service.search(ID, '', 0)).rejects.toMatchObject({ code: 'CONTENT_NOT_SUPPORTED' })
-  })
-
-  it('searches and marks installed projects', async () => {
-    const { service, dir, client } = await setup()
-    await writeManifest(dir, {
-      version: 1,
-      entries: [
-        {
-          fileName: 'fabric-api-1.jar',
-          projectId: API.id,
-          versionId: 'a1',
-          title: 'Fabric API',
-          versionNumber: '1',
-          sha1: 'x',
-          dependencyOf: []
-        }
-      ]
-    })
-    const r = await service.search(ID, 'sod', 20)
-    expect(client.search).toHaveBeenCalledWith(
-      expect.objectContaining({ folder: 'mods' }),
-      '1.21.4',
-      'sod',
-      20
-    )
-    expect(r).toEqual({
-      total: 2,
-      hits: [
-        {
-          projectId: SODIUM.id,
-          slug: 'sodium',
-          title: 'Sodium',
-          description: 'Fast',
-          iconUrl: 'https://cdn.modrinth.com/i.png',
-          downloads: 9,
-          installed: false
-        },
-        {
-          projectId: API.id,
-          slug: 'fabric-api',
-          title: 'Fabric API',
-          description: 'API',
-          iconUrl: null,
-          downloads: 8,
-          installed: true
-        }
-      ]
-    })
+    await expect(
+      service.search(ID, {
+        text: '',
+        sources: ['modrinth'],
+        category: null,
+        sort: 'relevance',
+        cursor: null
+      })
+    ).rejects.toMatchObject({ code: 'CONTENT_NOT_SUPPORTED' })
   })
 
   it('installs a project with its dependency, verifying sha512', async () => {
     const { service, mods, dir, downloads } = await setup()
-    const result = await service.install(ID, 'sodium')
+    const result = await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     expect(result).toEqual({
       installed: [
         { title: 'Sodium', versionNumber: 's1-num', asDependency: false },
@@ -237,7 +264,7 @@ describe('ContentService', () => {
       ['sodium-1.jar', { algo: 'sha512', value: 'sha512-s1' }]
     ])
     expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-1.jar'])
-    expect((await readManifest(dir)).entries).toEqual([
+    expect((await readManifest(dir)).entries).toMatchObject([
       {
         fileName: 'sodium-1.jar',
         projectId: SODIUM.id,
@@ -254,14 +281,16 @@ describe('ContentService', () => {
         title: 'Fabric API',
         versionNumber: 'a1-num',
         sha1: 'sha1-a1',
-        dependencyOf: [SODIUM.id]
+        dependencyOf: [`modrinth:${SODIUM.id}`]
       }
     ])
   })
 
   it('reports that a restart is needed while the server runs', async () => {
     const { service } = await setup({ status: 'running' })
-    expect((await service.install(ID, 'sodium')).restartNeeded).toBe(true)
+    expect(
+      (await service.install(ID, { source: 'modrinth', projectId: 'sodium' })).restartNeeded
+    ).toBe(true)
   })
 
   it('removes files it wrote when a later download fails', async () => {
@@ -273,23 +302,48 @@ describe('ContentService', () => {
     download.mockRejectedValueOnce(
       new AppError('HASH_MISMATCH', 'Checksum mismatch for fabric-api-1.jar')
     )
-    await expect(service.install(ID, 'sodium')).rejects.toMatchObject({ code: 'HASH_MISMATCH' })
+    await expect(
+      service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    ).rejects.toMatchObject({ code: 'HASH_MISMATCH' })
     expect(await readdir(mods)).toEqual([])
     expect((await readManifest(dir)).entries).toEqual([])
+  })
+
+  it('asks for a jar of the reported size when the source gives no hash', async () => {
+    const { service, downloads, providersExtra } = await setup({
+      extraProvider: true,
+      type: 'paper'
+    })
+    const unhashed = hangarVersion('u1', 'H')
+    unhashed.file.hash = null
+    providersExtra.versions.mockResolvedValueOnce([unhashed])
+    await service.install(ID, { source: 'hangar', projectId: 'H' })
+    expect(downloads).toHaveLength(1)
+    expect(downloads[0]).toMatchObject({ expectZip: true, expectedSize: 3 })
+    expect(downloads[0].hash).toBeUndefined()
+  })
+
+  it('does not check the size when the file is hash-verified', async () => {
+    const { service, downloads } = await setup()
+    await service.install(ID, { source: 'modrinth', projectId: 'fabric-api' })
+    expect(downloads[0].expectZip).toBe(true)
+    expect(downloads[0].expectedSize).toBeUndefined()
   })
 
   it('skips a download when a file with that name exists', async () => {
     const { service, mods, download } = await setup()
     await mkdir(mods)
     await writeFile(join(mods, 'fabric-api-1.jar'), 'mine')
-    await service.install(ID, 'sodium')
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     expect(download).toHaveBeenCalledTimes(1)
   })
 
   it('rejects unsafe file names from Modrinth before writing anything', async () => {
     const { service, versions, download } = await setup()
     versions[0].files[0].filename = '..\\..\\evil.jar'
-    await expect(service.install(ID, 'sodium')).rejects.toMatchObject({
+    await expect(
+      service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    ).rejects.toMatchObject({
       code: 'CONTENT_BAD_FILENAME'
     })
     expect(download).not.toHaveBeenCalled()
@@ -302,10 +356,10 @@ describe('ContentService', () => {
       await writeFile(join(mods, f), 'x')
     hashes['sodium-1.jar'] = 'sha1-s1'
     hashes['api-by-hand.jar'] = 'sha1-a1'
-    await writeManifest(dir, {
-      version: 1,
-      entries: [
-        {
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
           fileName: 'sodium-1.jar',
           projectId: SODIUM.id,
           versionId: 's1',
@@ -313,8 +367,8 @@ describe('ContentService', () => {
           versionNumber: 's1-num',
           sha1: 'sha1-s1',
           dependencyOf: []
-        },
-        {
+        }),
+        manifestEntry({
           fileName: 'gone.jar',
           projectId: 'GONEGONE',
           versionId: 'g',
@@ -322,16 +376,16 @@ describe('ContentService', () => {
           versionNumber: 'g',
           sha1: 'g',
           dependencyOf: []
-        }
-      ]
-    })
+        })
+      ])
+    )
     client.identify.mockResolvedValueOnce({ 'sha1-a1': ver('a1', API.id, 'fabric-api-1.jar') })
     client.latest.mockResolvedValueOnce({ 'sha1-s1': ver('s2', SODIUM.id, 'sodium-2.jar') })
 
     const list = await service.listInstalled(ID)
     expect(client.identify).toHaveBeenCalledWith(['sha1-a1', 'unknown-mystery.jar'])
-    expect(list.offline).toBe(false)
-    expect(list.items).toEqual([
+    expect(list.offline).toEqual([])
+    expect(list.items).toMatchObject([
       {
         fileName: 'api-by-hand.jar',
         title: 'Fabric API',
@@ -365,7 +419,7 @@ describe('ContentService', () => {
 
   it('names the content that needs a dependency', async () => {
     const { service, mods, hashes } = await setup()
-    await service.install(ID, 'sodium')
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     hashes['sodium-1.jar'] = 'sha1-s1'
     hashes['fabric-api-1.jar'] = 'sha1-a1'
     const list = await service.listInstalled(ID)
@@ -379,8 +433,8 @@ describe('ContentService', () => {
     await writeFile(join(mods, 'mystery.jar'), 'x')
     client.identify.mockRejectedValueOnce(new AppError('NETWORK', 'Could not reach Modrinth'))
     const list = await service.listInstalled(ID)
-    expect(list).toEqual({
-      offline: true,
+    expect(list).toMatchObject({
+      offline: ['modrinth'],
       items: [
         {
           fileName: 'mystery.jar',
@@ -407,7 +461,7 @@ describe('ContentService', () => {
 
   it('updates by downloading the new version and removing the old file', async () => {
     const { service, mods, dir, client, versions, hashes } = await setup()
-    await service.install(ID, 'sodium')
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     hashes['sodium-1.jar'] = 'sha1-s1'
     versions.unshift(ver('s2', SODIUM.id, 'sodium-2.jar', [API.id]))
     client.latest.mockResolvedValueOnce({ 'sha1-s1': versions[0] })
@@ -426,7 +480,7 @@ describe('ContentService', () => {
 
   it('does nothing when no update is available', async () => {
     const { service, download } = await setup()
-    await service.install(ID, 'sodium')
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     download.mockClear()
     expect(await service.update(ID, 'sodium-1.jar')).toEqual({
       installed: [],
@@ -437,7 +491,7 @@ describe('ContentService', () => {
 
   it('removes a file and its manifest entry', async () => {
     const { service, mods, dir } = await setup()
-    await service.install(ID, 'sodium')
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     await service.remove(ID, 'sodium-1.jar')
     expect(await readdir(mods)).toEqual(['fabric-api-1.jar'])
     expect((await readManifest(dir)).entries.map((e) => e.fileName)).toEqual(['fabric-api-1.jar'])
@@ -450,7 +504,7 @@ describe('ContentService', () => {
 describe('ContentService update safety (fix round 1)', () => {
   it("keeps the old jar and manifest when a same-name update's dependency download fails", async () => {
     const { service, mods, dir, client, versions, hashes, download } = await setup()
-    await service.install(ID, 'sodium')
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     hashes['sodium-1.jar'] = 'sha1-s1'
     const before = await readFile(join(mods, 'sodium-1.jar'), 'utf8')
 
@@ -469,7 +523,7 @@ describe('ContentService update safety (fix round 1)', () => {
       if (id === NEW_DEP.id) return NEW_DEP
       if (id === SODIUM.id || id === 'sodium') return SODIUM
       if (id === API.id || id === 'fabric-api') return API
-      throw new AppError('MODRINTH_API', 'not found', { status: 404 })
+      throw new AppError('CONTENT_SOURCE_API', 'not found', { status: 404 })
     })
     client.latest.mockResolvedValueOnce({ 'sha1-s1': s2 })
     // Fails specifically for the new dependency's file, regardless of call order, so this
@@ -491,7 +545,7 @@ describe('ContentService update safety (fix round 1)', () => {
 
   it('replaces the file in place for a same-name update once every download succeeds', async () => {
     const { service, mods, dir, client, versions, hashes, download } = await setup()
-    await service.install(ID, 'sodium')
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     hashes['sodium-1.jar'] = 'sha1-s1'
     const s2 = ver('s2', SODIUM.id, 'sodium-1.jar', [API.id])
     versions.push(s2)
@@ -512,18 +566,18 @@ describe('ContentService update safety (fix round 1)', () => {
 
   it('updates the matching entry only when a project has duplicate manifest entries', async () => {
     const { service, mods, dir, client, versions, hashes } = await setup()
-    await service.install(ID, 'sodium')
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     hashes['sodium-1.jar'] = 'sha1-s1'
     await writeFile(join(mods, 'sodium-copy.jar'), 'copy')
     const manifest = await readManifest(dir)
     const sodiumEntry = manifest.entries.find((e) => e.projectId === SODIUM.id)!
-    await writeManifest(dir, {
-      version: 1,
-      entries: [
+    await writeManifest(
+      dir,
+      manifestOf([
         ...manifest.entries,
         { ...sodiumEntry, fileName: 'sodium-copy.jar', sha1: 'copy-sha' }
-      ]
-    })
+      ])
+    )
 
     const s2 = ver('s2', SODIUM.id, 'sodium-2.jar', [API.id])
     versions.push(s2)
@@ -551,7 +605,7 @@ describe('ContentService update safety (fix round 1)', () => {
     await mkdir(mods, { recursive: true })
     await writeFile(join(mods, 'sodium-1.jar'), 'preexisting')
     await writeFile(join(mods, 'fabric-api-1.jar'), 'preexisting')
-    const result = await service.install(ID, 'sodium')
+    const result = await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     expect(result.restartNeeded).toBe(false)
   })
 
@@ -566,7 +620,7 @@ describe('ContentService update safety (fix round 1)', () => {
 
   it('rejects an update if the server starts while downloads are in flight, leaving the old jar untouched', async () => {
     const { service, mods, dir, client, versions, hashes, processes } = await setup()
-    await service.install(ID, 'sodium')
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     hashes['sodium-1.jar'] = 'sha1-s1'
     const s2 = ver('s2', SODIUM.id, 'sodium-2.jar', [API.id])
     versions.push(s2)
@@ -601,8 +655,8 @@ describe('ContentService final review fixes', () => {
     client.project.mockImplementation(async (id: string) =>
       id === LITH.id || id === 'lithium' ? LITH : original(id)
     )
-    await service.install(ID, 'sodium')
-    await service.install(ID, 'lithium')
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    await service.install(ID, { source: 'modrinth', projectId: 'lithium' })
     hashes['sodium-1.jar'] = 'sha1-s1'
     hashes['fabric-api-1.jar'] = 'sha1-a1'
     hashes['lithium-1.jar'] = 'sha1-l1'
@@ -622,10 +676,18 @@ describe('ContentService final review fixes', () => {
       await mkdir(join(o.dest, '..'), { recursive: true })
       await writeFile(o.dest, 'jar')
     })
-    const install = service.install(ID, 'sodium')
+    const install = service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     await vi.waitFor(() => expect(download).toHaveBeenCalled())
     const r = await Promise.race([
-      service.search(ID, 'sod', 0).then(() => 'searched'),
+      service
+        .search(ID, {
+          text: 'sod',
+          sources: ['modrinth'],
+          category: null,
+          sort: 'relevance',
+          cursor: null
+        })
+        .then(() => 'searched'),
       new Promise((r) => setTimeout(() => r('blocked'), 500))
     ])
     expect(r).toBe('searched')
@@ -642,7 +704,7 @@ describe('ContentService final review fixes', () => {
   ) {
     const t = await setup(opts)
     t.versions[0].files[0].filename = oldName
-    await t.service.install(ID, 'sodium')
+    await t.service.install(ID, { source: 'modrinth', projectId: 'sodium' })
     t.hashes[oldName] = 'sha1-s1'
     const s2 = ver('s2', SODIUM.id, newName, [API.id, ...extraDeps])
     t.versions.push(s2)
@@ -784,11 +846,544 @@ describe('ContentService final review fixes', () => {
     ]) {
       const { service, versions, download } = await setup()
       versions[1].files[0].url = url
-      await expect(service.install(ID, 'sodium')).rejects.toMatchObject({
-        code: 'MODRINTH_API',
+      await expect(
+        service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+      ).rejects.toMatchObject({
+        code: 'CONTENT_SOURCE_API',
         message: 'Unexpected download location for fabric-api-1.jar'
       })
       expect(download).not.toHaveBeenCalled()
     }
+  })
+})
+
+describe('ContentService providers and v2 manifest', () => {
+  it('restricts downloads to the provider hosts and records explicit installs', async () => {
+    const { service, dir, downloads } = await setup()
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    expect(downloads.every((d) => d.allowedHosts?.join() === 'cdn.modrinth.com')).toBe(true)
+    const entries = (await readManifest(dir)).entries
+    expect(entries.map((e) => [e.fileName, e.explicit, e.source])).toEqual([
+      ['sodium-1.jar', true, 'modrinth'],
+      ['fabric-api-1.jar', false, 'modrinth']
+    ])
+  })
+
+  it('keeps explicit and installedAt on update', async () => {
+    const { service, dir, mods, versions, client, hashes } = await setup()
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    const before = (await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)!
+    versions.push(ver('s2', SODIUM.id, 'sodium-2.jar', [API.id]))
+    client.latest.mockResolvedValueOnce({ 'sha1-s1': versions.at(-1)! })
+    await service.update(ID, 'sodium-1.jar')
+    const after = (await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)!
+    expect(after).toMatchObject({
+      fileName: 'sodium-2.jar',
+      versionId: 's2',
+      explicit: before.explicit,
+      installedAt: before.installedAt
+    })
+    expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-2.jar'])
+  })
+
+  it('fills in an empty stored sha1 from the file on disk', async () => {
+    const { service, dir, mods, hashes } = await setup()
+    await mkdir(mods)
+    await writeFile(join(mods, 'sodium-1.jar'), 'x')
+    hashes['sodium-1.jar'] = 'computed'
+    await writeManifest(
+      dir,
+      manifestOf([manifestEntry({ fileName: 'sodium-1.jar', projectId: SODIUM.id, sha1: '' })])
+    )
+    await service.listInstalled(ID)
+    expect((await readManifest(dir)).entries[0].sha1).toBe('computed')
+  })
+})
+
+describe('ContentService sha1 handling (fix round 1)', () => {
+  it('drops an entry with an empty sha1 whose jar is gone', async () => {
+    const { service, dir, mods } = await setup()
+    await mkdir(mods)
+    await writeManifest(
+      dir,
+      manifestOf([manifestEntry({ fileName: 'gone.jar', projectId: 'GONE', sha1: '' })])
+    )
+    await service.listInstalled(ID)
+    expect((await readManifest(dir)).entries).toEqual([])
+  })
+
+  it('records the on-disk hash when the source gives no sha1', async () => {
+    const { service, dir, versions, hashes } = await setup()
+    versions[0].files[0].hashes.sha1 = undefined as unknown as string
+    hashes['sodium-1.jar'] = 'disk-hash'
+    hashes['fabric-api-1.jar'] = 'api-disk'
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    const sha = Object.fromEntries(
+      (await readManifest(dir)).entries.map((e) => [e.fileName, e.sha1])
+    )
+    expect(sha).toEqual({ 'sodium-1.jar': 'disk-hash', 'fabric-api-1.jar': 'sha1-a1' })
+  })
+})
+
+describe('ContentService installed list v2', () => {
+  it('lists disabled jars under their enabled name', async () => {
+    const { service, mods, dir, hashes } = await setup()
+    await mkdir(mods)
+    await writeFile(join(mods, 'sodium-1.jar.disabled'), 'x')
+    hashes['sodium-1.jar.disabled'] = 'sha1-s1'
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
+          fileName: 'sodium-1.jar',
+          projectId: SODIUM.id,
+          sha1: 'sha1-s1',
+          disabled: true
+        })
+      ])
+    )
+    const list = await service.listInstalled(ID)
+    expect(list.items).toMatchObject([
+      { fileName: 'sodium-1.jar', disabled: true, source: 'modrinth' }
+    ])
+  })
+
+  it('disables and enables by renaming, refusing while running or on a name clash', async () => {
+    const { service, mods, dir, processes } = await setup()
+    await mkdir(mods)
+    await writeFile(join(mods, 'sodium-1.jar'), 'x')
+    await writeManifest(
+      dir,
+      manifestOf([manifestEntry({ fileName: 'sodium-1.jar', projectId: SODIUM.id })])
+    )
+    await service.setEnabled(ID, 'sodium-1.jar', false)
+    expect(await readdir(mods)).toEqual(['sodium-1.jar.disabled'])
+    expect((await readManifest(dir)).entries[0].disabled).toBe(true)
+    await writeFile(join(mods, 'sodium-1.jar'), 'other')
+    await expect(service.setEnabled(ID, 'sodium-1.jar', true)).rejects.toMatchObject({
+      code: 'CONTENT_FILE_EXISTS'
+    })
+    processes.status.mockReturnValue('running')
+    await expect(service.setEnabled(ID, 'sodium-1.jar', true)).rejects.toMatchObject({
+      code: 'SERVER_RUNNING'
+    })
+  })
+
+  it('disables a manual jar too', async () => {
+    const { service, mods } = await setup()
+    await mkdir(mods)
+    await writeFile(join(mods, 'hand.jar'), 'x')
+    await service.setEnabled(ID, 'hand.jar', false)
+    expect(await readdir(mods)).toEqual(['hand.jar.disabled'])
+    expect((await service.listInstalled(ID)).items).toMatchObject([
+      { fileName: 'hand.jar', source: 'manual', disabled: true }
+    ])
+  })
+
+  it('stores includeBeta and uses it for update checks', async () => {
+    const { service, client, dir, mods, hashes } = await setup()
+    await mkdir(mods)
+    await writeFile(join(mods, 'sodium-1.jar'), 'x')
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({ fileName: 'sodium-1.jar', projectId: SODIUM.id, sha1: 'sha1-s1' })
+      ])
+    )
+    await service.setIncludeBeta(ID, true)
+    expect((await readManifest(dir)).includeBeta).toBe(true)
+    const list = await service.listInstalled(ID)
+    expect(list.includeBeta).toBe(true)
+    expect(client.latest).toHaveBeenLastCalledWith(['sha1-s1'], ['fabric'], '1.21.4', true)
+  })
+
+  it('checks sources without a fast path project by project and reports which were offline', async () => {
+    const { service, dir, mods, hashes, providersExtra } = await setup({ extraProvider: true })
+    await mkdir(mods)
+    await writeFile(join(mods, 'h.jar'), 'x')
+    hashes['h.jar'] = 'sha1-h'
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
+          fileName: 'h.jar',
+          projectId: 'H',
+          source: 'hangar',
+          sha1: 'sha1-h',
+          versionId: 'old'
+        })
+      ])
+    )
+    providersExtra.versions.mockResolvedValueOnce([hangarVersion('new', 'H')])
+    let list = await service.listInstalled(ID)
+    expect(list.items[0].update).toEqual({ versionId: 'new', versionNumber: 'new-num' })
+    providersExtra.versions.mockRejectedValueOnce(new AppError('NETWORK', 'down'))
+    list = await service.listInstalled(ID)
+    expect(list.offline).toEqual(['hangar'])
+  })
+
+  it('reports the update count', async () => {
+    const onUpdates = vi.fn()
+    const { service } = await setup({ onUpdates })
+    await service.listInstalled(ID)
+    expect(onUpdates).toHaveBeenCalledWith(ID, 0)
+  })
+
+  it('updates a disabled jar and keeps it disabled', async () => {
+    const { service, mods, dir, client, versions, hashes } = await setup()
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    await service.setEnabled(ID, 'sodium-1.jar', false)
+    const s2 = ver('s2', SODIUM.id, 'sodium-2.jar', [API.id])
+    versions.push(s2)
+    client.latest.mockResolvedValueOnce({ 'sha1-s1': s2 })
+    await service.update(ID, 'sodium-1.jar')
+    expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-2.jar.disabled'])
+    expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject({
+      fileName: 'sodium-2.jar',
+      disabled: true
+    })
+  })
+
+  it('keeps a disabled jar disabled when its update only half succeeds', async () => {
+    const failingRm = vi.fn(async () => {
+      throw new Error('EBUSY: resource busy or locked')
+    })
+    const { service, mods, dir, client, versions, hashes } = await setup({
+      fsOps: { rm: failingRm }
+    })
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    await service.setEnabled(ID, 'sodium-1.jar', false)
+    const s2 = ver('s2', SODIUM.id, 'sodium-2.jar', [API.id])
+    versions.push(s2)
+    client.latest.mockResolvedValueOnce({ 'sha1-s1': s2 })
+    await expect(service.update(ID, 'sodium-1.jar')).rejects.toMatchObject({ code: 'CONTENT_IO' })
+    expect((await readdir(mods)).sort()).toEqual([
+      'fabric-api-1.jar',
+      'sodium-1.jar.disabled',
+      'sodium-2.jar.disabled'
+    ])
+    expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject({
+      fileName: 'sodium-2.jar',
+      disabled: true
+    })
+  })
+
+  it('records the installed version channel and publish date', async () => {
+    const { service, dir, providersExtra } = await setup({ extraProvider: true, type: 'paper' })
+    providersExtra.versions.mockResolvedValueOnce([
+      { ...hangarVersion('b1', 'H'), channel: 'beta', publishedAt: '2026-03-01T00:00:00.000Z' }
+    ])
+    await service.install(ID, { source: 'hangar', projectId: 'H' })
+    expect((await readManifest(dir)).entries[0]).toMatchObject({
+      channel: 'beta',
+      publishedAt: '2026-03-01T00:00:00.000Z'
+    })
+  })
+
+  it('does not offer an older release as an update to an installed newer beta', async () => {
+    const { service, dir, hashes, providersExtra } = await setup({
+      extraProvider: true,
+      type: 'paper'
+    })
+    const plugins = join(dir, 'plugins')
+    await mkdir(plugins)
+    await writeFile(join(plugins, 'h.jar'), 'x')
+    hashes['h.jar'] = 'sha1-h'
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
+          fileName: 'h.jar',
+          projectId: 'H',
+          source: 'hangar',
+          sha1: 'sha1-h',
+          versionId: 'beta',
+          channel: 'beta',
+          publishedAt: '2026-03-01T00:00:00.000Z'
+        })
+      ])
+    )
+    const release = { ...hangarVersion('rel', 'H'), publishedAt: '2026-02-01T00:00:00.000Z' }
+    providersExtra.versions.mockResolvedValue([release])
+    expect((await service.listInstalled(ID)).items[0].update).toBeUndefined()
+
+    // An older beta does see the newer release.
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
+          fileName: 'h.jar',
+          projectId: 'H',
+          source: 'hangar',
+          sha1: 'sha1-h',
+          versionId: 'beta',
+          channel: 'beta',
+          publishedAt: '2026-01-01T00:00:00.000Z'
+        })
+      ])
+    )
+    expect((await service.listInstalled(ID)).items[0].update).toEqual({
+      versionId: 'rel',
+      versionNumber: 'rel-num'
+    })
+  })
+
+  it('checks an installed prerelease with betas included on a fast-path source', async () => {
+    const { service, dir, mods, hashes, client } = await setup()
+    await mkdir(mods)
+    await writeFile(join(mods, 'sodium-1.jar'), 'x')
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    await writeManifest(
+      dir,
+      manifestOf([
+        manifestEntry({
+          fileName: 'sodium-1.jar',
+          projectId: SODIUM.id,
+          sha1: 'sha1-s1',
+          versionId: 's1',
+          channel: 'beta'
+        })
+      ])
+    )
+    await service.listInstalled(ID)
+    expect(client.latest).toHaveBeenLastCalledWith(['sha1-s1'], ['fabric'], '1.21.4', true)
+  })
+
+  it('treats a project gone from a source as having no update, not as the source being offline', async () => {
+    const { service, dir, hashes, providersExtra } = await setup({
+      extraProvider: true,
+      type: 'paper'
+    })
+    const plugins = join(dir, 'plugins')
+    await mkdir(plugins)
+    for (const n of ['a', 'b']) {
+      await writeFile(join(plugins, `${n}.jar`), 'x')
+      hashes[`${n}.jar`] = `sha1-${n}`
+    }
+    await writeManifest(
+      dir,
+      manifestOf(
+        ['a', 'b'].map((n) =>
+          manifestEntry({
+            fileName: `${n}.jar`,
+            projectId: n.toUpperCase(),
+            source: 'hangar',
+            sha1: `sha1-${n}`,
+            versionId: 'old'
+          })
+        )
+      )
+    )
+    providersExtra.versions.mockImplementation(async (pid?: string) => {
+      if (pid === 'A') throw new AppError('CONTENT_SOURCE_API', 'gone', { status: 404 })
+      return [hangarVersion('new', pid!)]
+    })
+    const list = await service.listInstalled(ID)
+    expect(list.offline).toEqual([])
+    expect(list.items.map((i) => [i.fileName, i.update?.versionId])).toEqual([
+      ['a.jar', undefined],
+      ['b.jar', 'new']
+    ])
+  })
+
+  it('removes both the jar and its disabled form', async () => {
+    const { service, mods } = await setup()
+    await mkdir(mods)
+    await writeFile(join(mods, 'a.jar.disabled'), 'x')
+    await service.remove(ID, 'a.jar')
+    expect(await readdir(mods)).toEqual([])
+  })
+})
+
+describe('ContentService browse API', () => {
+  const ref = { source: 'modrinth' as const, projectId: 'sodium' }
+
+  it('lists the sources for the server', async () => {
+    const { service } = await setup({ extraProvider: true, type: 'paper' })
+    expect(service.sources(ID)).toEqual([
+      { source: 'modrinth', label: 'Modrinth' },
+      { source: 'hangar', label: 'Hangar' }
+    ])
+  })
+
+  it('refuses a plugin-only source on a mod server', async () => {
+    const { service, download } = await setup({ extraProvider: true })
+    const ref = { source: 'hangar' as const, projectId: 'H' }
+    for (const call of [
+      () => service.project(ID, ref),
+      () => service.versions(ID, ref, false),
+      () => service.plan(ID, ref),
+      () => service.install(ID, ref)
+    ]) {
+      await expect(call()).rejects.toMatchObject({
+        code: 'CONTENT_NOT_SUPPORTED',
+        message: "Hangar plugins can't be installed on a Fabric server."
+      })
+    }
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('searches the requested sources and marks installed hits', async () => {
+    const { service } = await setup()
+    await service.install(ID, { source: 'modrinth', projectId: 'fabric-api' })
+    const r = await service.search(ID, {
+      text: 'sod',
+      sources: ['modrinth'],
+      category: null,
+      sort: 'relevance',
+      cursor: null
+    })
+    expect(r.hits.map((h) => [h.source, h.projectId, h.installed])).toEqual([
+      ['modrinth', SODIUM.id, false],
+      ['modrinth', API.id, true]
+    ])
+    expect(r.sources).toEqual([{ source: 'modrinth', status: 'ok', total: 2 }])
+  })
+
+  it('installs a specific version', async () => {
+    const { service, versions, mods } = await setup()
+    versions.unshift(ver('s2', SODIUM.id, 'sodium-2.jar', [API.id]))
+    await service.install(ID, ref, 's1')
+    expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-1.jar'])
+  })
+
+  it('previews a plan without downloading', async () => {
+    const { service, download } = await setup()
+    expect(await service.plan(ID, ref)).toEqual({
+      install: [
+        { title: 'Sodium', versionNumber: 's1-num', asDependency: false },
+        { title: 'Fabric API', versionNumber: 'a1-num', asDependency: true }
+      ],
+      manual: [],
+      optional: []
+    })
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('returns project details with install state, cached', async () => {
+    const { service, client } = await setup()
+    await service.install(ID, ref)
+    const p = await service.project(ID, ref)
+    expect(p).toMatchObject({
+      source: 'modrinth',
+      projectId: SODIUM.id,
+      title: 'Sodium',
+      installed: { fileName: 'sodium-1.jar', versionId: 's1' }
+    })
+    await service.project(ID, ref)
+    expect(client.project.mock.calls.filter(([id]) => id === 'sodium').length).toBeLessThanOrEqual(
+      2
+    )
+  })
+
+  it('lists versions, flagging compatibility', async () => {
+    const { service, versions } = await setup()
+    versions.push({ ...ver('old', SODIUM.id, 'sodium-old.jar'), game_versions: ['1.20.1'] })
+    const all = await service.versions(ID, ref, true)
+    expect(all.find((v) => v.id === 'old')).toMatchObject({ compatible: false, downloadable: true })
+    expect(all.find((v) => v.id === 's1')).toMatchObject({ compatible: true })
+    expect((await service.versions(ID, ref, false)).map((v) => v.id)).not.toContain('old')
+  })
+})
+
+describe('findOrphans', () => {
+  it('follows dependency chains and keeps explicit or shared entries', () => {
+    const a = manifestEntry({ fileName: 'a.jar', projectId: 'A' })
+    const b = manifestEntry({
+      fileName: 'b.jar',
+      projectId: 'B',
+      explicit: false,
+      dependencyOf: ['modrinth:A']
+    })
+    const c = manifestEntry({
+      fileName: 'c.jar',
+      projectId: 'C',
+      explicit: false,
+      dependencyOf: ['modrinth:B']
+    })
+    const d = manifestEntry({
+      fileName: 'd.jar',
+      projectId: 'D',
+      explicit: false,
+      dependencyOf: ['modrinth:A', 'modrinth:E']
+    })
+    const e = manifestEntry({ fileName: 'e.jar', projectId: 'E' })
+    const f = manifestEntry({
+      fileName: 'f.jar',
+      projectId: 'F',
+      explicit: true,
+      dependencyOf: ['modrinth:A']
+    })
+    expect(findOrphans([a, b, c, d, e, f], 'modrinth:A').map((x) => x.fileName)).toEqual([
+      'b.jar',
+      'c.jar'
+    ])
+  })
+})
+
+describe('ContentService bulk actions', () => {
+  it('removes orphaned dependencies when asked', async () => {
+    const { service, mods } = await setup()
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' }) // installs sodium + fabric api (dependency)
+    expect(await service.orphansOf(ID, 'sodium-1.jar')).toEqual([
+      { fileName: 'fabric-api-1.jar', title: 'Fabric API' }
+    ])
+    await service.remove(ID, 'sodium-1.jar', { removeOrphans: true })
+    expect(await readdir(mods)).toEqual([])
+  })
+
+  it('keeps dependencies by default', async () => {
+    const { service, mods } = await setup()
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    await service.remove(ID, 'sodium-1.jar')
+    expect(await readdir(mods)).toEqual(['fabric-api-1.jar'])
+  })
+
+  it('updates everything it can and reports failures', async () => {
+    const { service, client, versions, mods, hashes, dir, download } = await setup()
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    hashes['fabric-api-1.jar'] = 'sha1-a1'
+    const s2 = ver('s2', SODIUM.id, 'sodium-2.jar', [API.id])
+    const a2 = ver('a2', API.id, 'fabric-api-2.jar')
+    versions.push(s2, a2)
+    client.latest.mockResolvedValue({ 'sha1-s1': s2, 'sha1-a1': a2 })
+    // Fabric API's download fails; Sodium's succeeds.
+    const original = download.getMockImplementation()!
+    download.mockImplementation(async (o: DownloadOptions) => {
+      if (o.url.endsWith('fabric-api-2.jar')) throw new AppError('HASH_MISMATCH', 'bad')
+      return original(o)
+    })
+    const r = await service.updateAll(ID)
+    expect(r.updated).toEqual([{ title: 'Sodium', from: 's1-num', to: 's2-num' }])
+    expect(r.failed).toMatchObject([{ title: 'Fabric API' }])
+    expect((await readdir(mods)).sort()).toContain('sodium-2.jar')
+    expect((await readManifest(dir)).entries.some((e) => e.fileName === 'sodium-2.jar')).toBe(true)
+  })
+
+  it('keeps a disabled jar disabled when updating everything', async () => {
+    const { service, mods, dir, client, versions, hashes } = await setup()
+    await service.install(ID, { source: 'modrinth', projectId: 'sodium' })
+    hashes['sodium-1.jar'] = 'sha1-s1'
+    await service.setEnabled(ID, 'sodium-1.jar', false)
+    const s2 = ver('s2', SODIUM.id, 'sodium-2.jar', [API.id])
+    versions.push(s2)
+    client.latest.mockResolvedValue({ 'sha1-s1': s2 })
+    const r = await service.updateAll(ID)
+    expect(r.updated).toHaveLength(1)
+    expect((await readdir(mods)).sort()).toEqual(['fabric-api-1.jar', 'sodium-2.jar.disabled'])
+    expect((await readManifest(dir)).entries.find((e) => e.projectId === SODIUM.id)).toMatchObject({
+      fileName: 'sodium-2.jar',
+      disabled: true
+    })
+  })
+
+  it('refuses update all while running', async () => {
+    const { service } = await setup({ status: 'running' })
+    await expect(service.updateAll(ID)).rejects.toMatchObject({ code: 'SERVER_RUNNING' })
   })
 })

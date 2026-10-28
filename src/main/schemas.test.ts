@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
   commandSchema,
+  configChangeSchema,
+  configFileIdSchema,
   contentFileSchema,
-  contentOffsetSchema,
-  contentQuerySchema,
+  contentRefSchema,
+  contentSearchSchema,
+  versionIdSchema,
   createServerSchema,
   httpsUrlSchema,
   javaMajorSchema,
   nameSchema,
   playerActionSchema,
-  projectRefSchema,
   propertyEntriesSchema,
   serverPatchSchema
 } from './schemas'
@@ -169,17 +171,69 @@ describe('playerActionSchema', () => {
 })
 
 describe('content schemas', () => {
-  it('validates queries, offsets, project refs and file names', () => {
-    expect(contentQuerySchema.parse('  sodium ')).toBe('sodium')
-    expect(() => contentQuerySchema.parse('x'.repeat(101))).toThrow()
-    expect(contentOffsetSchema.parse(40)).toBe(40)
-    for (const bad of [-1, 10001, 1.5]) expect(() => contentOffsetSchema.parse(bad)).toThrow()
-    expect(projectRefSchema.parse('AANobbMI')).toBe('AANobbMI')
-    expect(projectRefSchema.parse('fabric-api')).toBe('fabric-api')
-    for (const bad of ['', 'a b', '../x', 'x'.repeat(65)])
-      expect(() => projectRefSchema.parse(bad)).toThrow()
+  it('validates project refs and file names', () => {
+    expect(contentRefSchema.parse({ source: 'hangar', projectId: 'LuckPerms-Supporter' })).toEqual({
+      source: 'hangar',
+      projectId: 'LuckPerms-Supporter'
+    })
+    expect(() => contentRefSchema.parse({ source: 'curse', projectId: 'x' })).toThrow()
+    expect(() => contentRefSchema.parse({ source: 'modrinth', projectId: '../x' })).toThrow()
     expect(contentFileSchema.parse('sodium-1.jar')).toBe('sodium-1.jar')
     for (const bad of ['../x.jar', 'x.exe', 'CON.jar'])
       expect(() => contentFileSchema.parse(bad)).toThrow()
+  })
+
+  it('rejects dot-only ids', () => {
+    for (const bad of ['.', '..'])
+      expect(() => contentRefSchema.parse({ source: 'modrinth', projectId: bad })).toThrow()
+    expect(() => versionIdSchema.parse('..')).toThrow()
+    expect(versionIdSchema.parse('v1.2.3')).toBe('v1.2.3')
+  })
+
+  it('validates search requests', () => {
+    const req = {
+      text: ' sodium ',
+      sources: ['modrinth', 'hangar'],
+      category: 'utility',
+      sort: 'downloads',
+      cursor: { modrinth: 20, hangar: 'done' }
+    }
+    expect(contentSearchSchema.parse(req)).toMatchObject({ text: 'sodium' })
+    expect(() => contentSearchSchema.parse({ ...req, text: 'x'.repeat(101) })).toThrow()
+    expect(() => contentSearchSchema.parse({ ...req, cursor: { modrinth: 10001 } })).toThrow()
+  })
+})
+
+describe('configFileIdSchema', () => {
+  it('accepts allowlisted ids only', () => {
+    expect(configFileIdSchema.safeParse('paper-global').success).toBe(true)
+    expect(configFileIdSchema.safeParse('../server.properties').success).toBe(false)
+  })
+})
+
+describe('configChangeSchema', () => {
+  it('accepts value edits and raw text', () => {
+    expect(
+      configChangeSchema.safeParse({
+        mode: 'values',
+        edits: [
+          { path: ['a', 'b'], value: 1 },
+          { path: ['c'], value: ['x'] },
+          { path: ['d'], value: false }
+        ]
+      }).success
+    ).toBe(true)
+    expect(configChangeSchema.safeParse({ mode: 'raw', text: 'a: 1\n' }).success).toBe(true)
+  })
+
+  it('rejects empty paths, non-finite numbers and unknown modes', () => {
+    expect(
+      configChangeSchema.safeParse({ mode: 'values', edits: [{ path: [], value: 1 }] }).success
+    ).toBe(false)
+    expect(
+      configChangeSchema.safeParse({ mode: 'values', edits: [{ path: ['a'], value: Infinity }] })
+        .success
+    ).toBe(false)
+    expect(configChangeSchema.safeParse({ mode: 'delete' }).success).toBe(false)
   })
 })

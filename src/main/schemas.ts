@@ -1,7 +1,15 @@
 import { isAbsolute } from 'node:path'
 import { isIP } from 'node:net'
 import { z } from 'zod'
-import { BACKUP_INTERVALS, PLAYER_NAME_PATTERN, SERVER_TYPES } from '../shared/types'
+import {
+  BACKUP_INTERVALS,
+  CONFIG_FILE_IDS,
+  CONTENT_CATEGORIES,
+  CONTENT_SORTS,
+  CONTENT_SOURCES,
+  PLAYER_NAME_PATTERN,
+  SERVER_TYPES
+} from '../shared/types'
 import { isBackupFileName } from './backups/store'
 import { safeFileName } from './content/service'
 import { JAVA_MAJORS } from './java/requirements'
@@ -90,6 +98,25 @@ export const propertyEntriesSchema = z
   )
   .max(500)
 
+export const configFileIdSchema = z.enum(CONFIG_FILE_IDS)
+
+const configPathSchema = z.array(z.string().max(256)).min(1).max(32)
+
+const configValueSchema = z.union([
+  z.boolean(),
+  z.number(),
+  z.string().max(65536),
+  z.array(z.string().max(4096)).max(1000)
+])
+
+export const configChangeSchema = z.discriminatedUnion('mode', [
+  z.strictObject({
+    mode: z.literal('values'),
+    edits: z.array(z.strictObject({ path: configPathSchema, value: configValueSchema })).max(2000)
+  }),
+  z.strictObject({ mode: z.literal('raw'), text: z.string().max(2_000_000) })
+])
+
 export const commandSchema = z
   .string()
   .min(1)
@@ -147,9 +174,26 @@ export const playerActionSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('setWhitelistEnabled'), enabled: z.boolean(), overwriteCorrupt })
 ])
 
-export const contentQuerySchema = z.string().trim().max(100)
-export const contentOffsetSchema = z.number().int().min(0).max(10000)
-export const projectRefSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'Not a Modrinth project')
+const projectIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_.-]{1,64}$/, 'Not a project id')
+  .refine((s) => !/^\.+$/.test(s), 'Not a project id')
+export const contentRefSchema = z.strictObject({
+  source: z.enum(CONTENT_SOURCES),
+  projectId: projectIdSchema
+})
+const offset = z.number().int().min(0).max(10000)
+export const contentSearchSchema = z.strictObject({
+  text: z.string().trim().max(100),
+  sources: z.array(z.enum(CONTENT_SOURCES)).max(CONTENT_SOURCES.length),
+  category: z.enum(CONTENT_CATEGORIES).nullable(),
+  sort: z.enum(CONTENT_SORTS),
+  cursor: z.partialRecord(z.enum(CONTENT_SOURCES), z.union([offset, z.literal('done')])).nullable()
+})
+export const versionIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_.-]{1,64}$/, 'Not a version id')
+  .refine((s) => !/^\.+$/.test(s), 'Not a version id')
 export const contentFileSchema = z
   .string()
   .max(200)

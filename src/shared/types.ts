@@ -103,6 +103,57 @@ export interface PropertyEntry {
   value: string
 }
 
+/** YAML config files Blockhost can edit, in display order. Paths live in the main process. */
+export const CONFIG_FILE_IDS = [
+  'bukkit',
+  'spigot',
+  'commands',
+  'help',
+  'permissions',
+  'paper-legacy',
+  'paper-global',
+  'paper-world-defaults',
+  'purpur',
+  'pufferfish'
+] as const
+export type ConfigFileId = (typeof CONFIG_FILE_IDS)[number]
+
+export interface ConfigFileInfo {
+  id: ConfigFileId
+  label: string
+  /** Path relative to the server folder, for display. */
+  path: string
+}
+
+export type ConfigValue = boolean | number | string | string[]
+export type ConfigNodeKind = 'bool' | 'number' | 'string' | 'list' | 'map' | 'complex'
+
+/** One key of a YAML file. `map` nodes carry no value; `complex` values are their YAML text. */
+export interface ConfigNode {
+  path: string[]
+  kind: ConfigNodeKind
+  value?: ConfigValue
+  /** Original text of a number, so the editor can tell 1.0 from 1. */
+  source?: string
+  comment?: string
+}
+
+export interface ConfigFileContent {
+  id: ConfigFileId
+  text: string
+  nodes: ConfigNode[]
+  /** Set when the file is not valid YAML; `nodes` is then empty. */
+  error?: string
+}
+
+export interface ConfigEdit {
+  path: string[]
+  value: ConfigValue
+}
+
+export type ConfigFileChange =
+  { mode: 'values'; edits: ConfigEdit[] } | { mode: 'raw'; text: string }
+
 export interface SystemInfo {
   totalRamMb: number
   defaultServersDir: string
@@ -244,27 +295,132 @@ export const CONTENT_LABELS: Record<ServerType, ContentLabel | null> = {
   neoforge: 'Mods'
 }
 
-export interface ContentSearchHit {
+export const CONTENT_SOURCES = ['modrinth', 'hangar', 'spigot'] as const
+export type ContentSource = (typeof CONTENT_SOURCES)[number]
+
+export const CONTENT_SOURCE_LABELS: Record<ContentSource, string> = {
+  modrinth: 'Modrinth',
+  hangar: 'Hangar',
+  spigot: 'SpigotMC'
+}
+
+export type ContentChannel = 'release' | 'beta' | 'alpha'
+
+export const CONTENT_SORTS = ['relevance', 'downloads', 'updated', 'newest'] as const
+export type ContentSort = (typeof CONTENT_SORTS)[number]
+
+export const CONTENT_CATEGORIES = [
+  'optimization',
+  'admin',
+  'economy',
+  'worldgen',
+  'gameplay',
+  'chat',
+  'protection',
+  'utility',
+  'library'
+] as const
+export type ContentCategory = (typeof CONTENT_CATEGORIES)[number]
+
+export const CONTENT_CATEGORY_LABELS: Record<ContentCategory, string> = {
+  optimization: 'Optimization',
+  admin: 'Admin & moderation',
+  economy: 'Economy',
+  worldgen: 'World generation',
+  gameplay: 'Gameplay',
+  chat: 'Chat',
+  protection: 'Protection',
+  utility: 'Utility',
+  library: 'Library'
+}
+
+/** Per-source paging position; `done` (or absent) means the source is exhausted. */
+export type ContentCursor = Partial<Record<ContentSource, number | 'done'>>
+
+export interface ContentSourceStatus {
+  source: ContentSource
+  status: 'ok' | 'error' | 'skipped'
+  total: number
+  message?: string
+}
+
+export type ContentLinkKind = 'page' | 'issues' | 'source' | 'wiki' | 'discord' | 'other'
+
+export interface ContentRef {
+  source: ContentSource
   projectId: string
+}
+
+export interface ContentSearchRequest {
+  text: string
+  sources: ContentSource[]
+  category: ContentCategory | null
+  sort: ContentSort
+  cursor: ContentCursor | null
+}
+
+export interface ContentSearchHit extends ContentRef {
   slug: string
   title: string
+  author: string | null
   description: string
   iconUrl: string | null
   downloads: number
+  updatedAt: string | null
+  untestedOnVersion: boolean
   installed: boolean
 }
 
 export interface ContentSearchResult {
   hits: ContentSearchHit[]
-  total: number
+  sources: ContentSourceStatus[]
+  cursor: ContentCursor | null
+}
+
+export interface ContentProjectView extends ContentRef {
+  slug: string
+  title: string
+  author: string | null
+  summary: string
+  iconUrl: string | null
+  downloads: number
+  updatedAt: string | null
+  license: string | null
+  description: { format: 'markdown' | 'html'; body: string }
+  gallery: { url: string; title: string | null }[]
+  links: { kind: ContentLinkKind; url: string }[]
+  pageUrl: string
+  installed: { fileName: string; versionId: string; versionNumber: string } | null
+}
+
+export interface ContentVersionView {
+  id: string
+  versionNumber: string
+  channel: ContentChannel
+  publishedAt: string | null
+  mcVersions: string[]
+  compatible: boolean
+  downloadable: boolean
+  externalUrl: string | null
+}
+
+export interface ContentPlanView {
+  install: { title: string; versionNumber: string; asDependency: boolean }[]
+  manual: { title: string; externalUrl: string | null }[]
+  optional: string[]
 }
 
 export interface InstalledContent {
+  /** Without the ".disabled" suffix. */
   fileName: string
   title: string
   versionNumber: string | null
-  source: 'modrinth' | 'manual'
+  source: ContentSource | 'manual'
   projectId?: string
+  iconUrl: string | null
+  disabled: boolean
+  isDependency: boolean
+  installedAt: string | null
   update?: { versionId: string; versionNumber: string }
   /** Titles of installed content that pulled this in as a dependency. */
   neededBy: string[]
@@ -272,13 +428,24 @@ export interface InstalledContent {
 
 export interface InstalledContentList {
   items: InstalledContent[]
-  /** True when Modrinth could not be reached; items are local files only. */
-  offline: boolean
+  /** Sources that could not be reached; their items lack identification/update info. */
+  offline: ContentSource[]
+  includeBeta: boolean
 }
 
 export interface ContentInstallResult {
   installed: { title: string; versionNumber: string; asDependency: boolean }[]
   restartNeeded: boolean
+}
+
+export interface ContentUpdateAllResult {
+  updated: { title: string; from: string; to: string }[]
+  failed: { title: string; message: string }[]
+}
+
+export interface ContentOrphan {
+  fileName: string
+  title: string
 }
 
 /** One performance reading for a running server. `null` means "no reading". */

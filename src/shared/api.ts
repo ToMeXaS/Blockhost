@@ -28,6 +28,9 @@ export const INVOKE_CHANNELS = [
   'servers:getInstallLog',
   'servers:readProperties',
   'servers:writeProperties',
+  'servers:listConfigFiles',
+  'servers:readConfigFile',
+  'servers:writeConfigFile',
   'servers:openFolder',
   'players:get',
   'players:action',
@@ -52,11 +55,19 @@ export const INVOKE_CHANNELS = [
   'tunnel:setShared',
   'tunnel:status',
   'tunnel:retry',
+  'content:sources',
   'content:search',
+  'content:project',
+  'content:versions',
+  'content:plan',
   'content:installed',
   'content:install',
   'content:update',
   'content:remove',
+  'content:setEnabled',
+  'content:updateAll',
+  'content:orphans',
+  'content:setIncludeBeta',
   'java:install',
   'system:info',
   'system:netInfo',
@@ -82,7 +93,8 @@ export const EVENT_CHANNELS = [
   'tunnel:status',
   'install:progress',
   'net:offline',
-  'update:status'
+  'update:status',
+  'content:updates'
 ] as const
 export type EventChannel = (typeof EVENT_CHANNELS)[number]
 
@@ -97,6 +109,7 @@ export interface EventPayloads {
   'install:progress': InstallProgress
   'net:offline': { url: string }
   'update:status': UpdateStatus
+  'content:updates': { serverId: string; count: number }
 }
 
 /** What the preload script exposes as `window.blockhost`. */

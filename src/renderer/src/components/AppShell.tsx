@@ -37,6 +37,7 @@ interface Props {
   current?: ServerView
   section?: Section
   onlineCount: number
+  contentUpdates: number
   offline: boolean
   onSection: (section: Section) => void
   onOpenServer: (id: string) => void
@@ -130,6 +131,7 @@ export function AppShell({
   current,
   section,
   onlineCount,
+  contentUpdates,
   offline,
   onSection,
   onOpenServer,
@@ -178,7 +180,13 @@ export function AppShell({
                 icon={SECTION_ICONS[s.id]}
                 label={s.label}
                 active={section === s.id}
-                badge={s.id === 'players' && onlineCount > 0 ? onlineCount : undefined}
+                badge={
+                  s.id === 'players' && onlineCount > 0
+                    ? onlineCount
+                    : s.id === 'content' && contentUpdates > 0
+                      ? contentUpdates
+                      : undefined
+                }
                 onClick={() => onSection(s.id)}
               />
             ))

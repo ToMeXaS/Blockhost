@@ -6,7 +6,7 @@ import { BackupScheduler } from './backups/scheduler'
 import { BackupService } from './backups/service'
 import { JsonCache } from './cache'
 import { folderBytes } from './disk/usage'
-import { createModrinthClient } from './content/modrinth'
+import { createContentProviders } from './content/providers'
 import { ContentService } from './content/service'
 import { probeJava } from './java/detect'
 import { extractZip } from './java/extract'
@@ -150,10 +150,11 @@ export async function createServices(opts: {
   const content = new ContentService({
     store,
     processes,
-    client: createModrinthClient({
+    providers: createContentProviders({
       userAgent: `Blockhost/${appVersion} (github.com/ToMeXaS/blockhost)`
     }),
-    download: downloadFile
+    download: downloadFile,
+    onUpdates: (serverId, count) => send('content:updates', { serverId, count })
   })
   const backups = new BackupService({
     store,

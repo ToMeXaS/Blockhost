@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/AppShell'
 import { ErrorText, pageClass } from './components/ui'
+import { useContentUpdates } from './hooks/useContentUpdates'
 import { useOnlinePlayers } from './hooks/useOnlinePlayers'
 import { useServers } from './hooks/useServers'
 import { api } from './lib/api'
@@ -21,6 +22,7 @@ export default function App() {
 
   const current = route.name === 'server' ? servers.find((s) => s.id === route.id) : undefined
   const online = useOnlinePlayers(current?.id, current?.status)
+  const contentUpdates = useContentUpdates(current?.id ?? null)
 
   const goList = () => setRoute({ name: 'list' })
   const goNew = () => setRoute({ name: 'new' })
@@ -43,6 +45,7 @@ export default function App() {
       current={current}
       section={route.name === 'server' ? route.section : undefined}
       onlineCount={online.length}
+      contentUpdates={contentUpdates}
       offline={offline}
       onSection={setSection}
       onOpenServer={openServer}

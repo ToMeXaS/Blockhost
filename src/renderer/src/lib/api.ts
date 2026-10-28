@@ -5,8 +5,20 @@ import type {
   BackupList,
   BackupLocation,
   BackupMeta,
+  ConfigFileChange,
+  ConfigFileContent,
+  ConfigFileId,
+  ConfigFileInfo,
   ContentInstallResult,
+  ContentOrphan,
+  ContentPlanView,
+  ContentProjectView,
+  ContentRef,
+  ContentSearchRequest,
   ContentSearchResult,
+  ContentSource,
+  ContentUpdateAllResult,
+  ContentVersionView,
   CreateServerInput,
   DiskUsage,
   InstalledContentList,
@@ -70,6 +82,11 @@ export const api = {
   readProperties: (id: string) => call<PropertyEntry[]>('servers:readProperties', id),
   writeProperties: (id: string, entries: PropertyEntry[]) =>
     call<void>('servers:writeProperties', id, entries),
+  listConfigFiles: (id: string) => call<ConfigFileInfo[]>('servers:listConfigFiles', id),
+  readConfigFile: (id: string, fileId: ConfigFileId) =>
+    call<ConfigFileContent>('servers:readConfigFile', id, fileId),
+  writeConfigFile: (id: string, fileId: ConfigFileId, change: ConfigFileChange) =>
+    call<void>('servers:writeConfigFile', id, fileId, change),
   openFolder: (id: string) => call<void>('servers:openFolder', id),
   getPlayers: (id: string) => call<PlayerLists>('players:get', id),
   playerAction: (id: string, action: PlayerAction) =>
@@ -99,14 +116,30 @@ export const api = {
   tunnelStatus: (id: string) => call<TunnelStatus>('tunnel:status', id),
   tunnelRetry: (id: string) => call<TunnelStatus>('tunnel:retry', id),
 
-  contentSearch: (id: string, query: string, offset: number) =>
-    call<ContentSearchResult>('content:search', id, query, offset),
+  contentSources: (id: string) =>
+    call<{ source: ContentSource; label: string }[]>('content:sources', id),
+  contentSearch: (id: string, req: ContentSearchRequest) =>
+    call<ContentSearchResult>('content:search', id, req),
+  contentProject: (id: string, ref: ContentRef) =>
+    call<ContentProjectView>('content:project', id, ref),
+  contentVersions: (id: string, ref: ContentRef, all: boolean) =>
+    call<ContentVersionView[]>('content:versions', id, ref, all),
+  contentPlan: (id: string, ref: ContentRef, versionId?: string) =>
+    call<ContentPlanView>('content:plan', id, ref, versionId),
   contentInstalled: (id: string) => call<InstalledContentList>('content:installed', id),
-  contentInstall: (id: string, projectId: string) =>
-    call<ContentInstallResult>('content:install', id, projectId),
+  contentInstall: (id: string, ref: ContentRef, versionId?: string) =>
+    call<ContentInstallResult>('content:install', id, ref, versionId),
   contentUpdate: (id: string, fileName: string) =>
     call<ContentInstallResult>('content:update', id, fileName),
-  contentRemove: (id: string, fileName: string) => call<void>('content:remove', id, fileName),
+  contentRemove: (id: string, fileName: string, removeOrphans = false) =>
+    call<void>('content:remove', id, fileName, { removeOrphans }),
+  contentSetEnabled: (id: string, fileName: string, enabled: boolean) =>
+    call<void>('content:setEnabled', id, fileName, enabled),
+  contentUpdateAll: (id: string) => call<ContentUpdateAllResult>('content:updateAll', id),
+  contentOrphans: (id: string, fileName: string) =>
+    call<ContentOrphan[]>('content:orphans', id, fileName),
+  contentSetIncludeBeta: (id: string, value: boolean) =>
+    call<void>('content:setIncludeBeta', id, value),
 
   installJava: (major: number) => call<void>('java:install', major),
   systemInfo: () => call<SystemInfo>('system:info'),

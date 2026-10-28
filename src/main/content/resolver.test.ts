@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AppError } from '../errors'
-import type { ModrinthDependency, ModrinthProject, ModrinthVersion } from './modrinth'
-import { isCompatible, pickVersion, planInstall, type ResolveContext } from './resolver'
+import { contentTarget } from './loaders'
+import type {
+  ModrinthClient,
+  ModrinthDependency,
+  ModrinthProject,
+  ModrinthVersion
+} from './modrinth'
+import { modrinthProvider, toVersion } from './providers/modrinth'
+import { pickVersion, planInstall, type ResolveContext } from './resolver'
+import { isCompatible } from './types'
 
 const project = (id: string, slug: string, title: string): ModrinthProject => ({
   id,
@@ -49,28 +57,32 @@ const req = (projectId: string | null, versionId: string | null = null): Modrint
 function ctx(
   projects: ModrinthProject[],
   versions: ModrinthVersion[],
-  installed: string[] = []
-): ResolveContext {
+  installed: string[] = [],
+  includeBeta = false
+): ResolveContext & { client: ModrinthClient } {
   const find = (idOrSlug: string) => {
     const p = projects.find((x) => x.id === idOrSlug || x.slug === idOrSlug)
-    if (!p) throw new AppError('MODRINTH_API', 'not found', { status: 404 })
+    if (!p) throw new AppError('CONTENT_SOURCE_API', 'not found', { status: 404 })
     return p
   }
+  const client = {
+    project: vi.fn(async (id: string) => find(id)),
+    version: vi.fn(async (id: string) => {
+      const v = versions.find((x) => x.id === id)
+      if (!v) throw new AppError('CONTENT_SOURCE_API', 'not found', { status: 404 })
+      return v
+    }),
+    versions: vi.fn(async (pid: string, loaders: string[], mc: string) =>
+      versions.filter((v) => v.project_id === pid && isCompatible(toVersion(v), loaders, mc))
+    )
+  } as unknown as ModrinthClient
   return {
-    client: {
-      project: vi.fn(async (id: string) => find(id)),
-      version: vi.fn(async (id: string) => {
-        const v = versions.find((x) => x.id === id)
-        if (!v) throw new AppError('MODRINTH_API', 'not found', { status: 404 })
-        return v
-      }),
-      versions: vi.fn(async (pid: string, loaders: string[], mc: string) =>
-        versions.filter((v) => v.project_id === pid && isCompatible(v, loaders, mc))
-      )
-    },
-    loaders: ['fabric'],
+    provider: modrinthProvider(client),
+    client,
+    target: contentTarget('fabric')!,
     mcVersion: '1.21.4',
     installedProjectIds: new Set(installed),
+    includeBeta,
     targetLabel: 'Fabric 1.21.4'
   }
 }
@@ -81,20 +93,23 @@ describe('pickVersion', () => {
     const b = version('b', 'p', { type: 'beta' })
     const r1 = version('r1', 'p')
     const r2 = version('r2', 'p')
-    expect(pickVersion([a, b, r1, r2])?.id).toBe('r1')
-    expect(pickVersion([a, b])?.id).toBe('b')
-    expect(pickVersion([a])?.id).toBe('a')
-    expect(pickVersion([])).toBeNull()
+    const pick = (vs: ModrinthVersion[]) => pickVersion(vs.map(toVersion), false)
+    expect(pick([a, b, r1, r2])?.id).toBe('r1')
+    expect(pick([a, b])?.id).toBe('b')
+    expect(pick([a])?.id).toBe('a')
+    expect(pick([])).toBeNull()
   })
 })
 
 describe('isCompatible', () => {
   it('needs a shared loader and the game version', () => {
-    expect(isCompatible(version('x', 'p'), ['fabric'], '1.21.4')).toBe(true)
-    expect(isCompatible(version('x', 'p', { loaders: ['forge'] }), ['fabric'], '1.21.4')).toBe(
-      false
-    )
-    expect(isCompatible(version('x', 'p', { game: ['1.21.1'] }), ['fabric'], '1.21.4')).toBe(false)
+    expect(isCompatible(toVersion(version('x', 'p')), ['fabric'], '1.21.4')).toBe(true)
+    expect(
+      isCompatible(toVersion(version('x', 'p', { loaders: ['forge'] })), ['fabric'], '1.21.4')
+    ).toBe(false)
+    expect(
+      isCompatible(toVersion(version('x', 'p', { game: ['1.21.1'] })), ['fabric'], '1.21.4')
+    ).toBe(false)
   })
 })
 
@@ -123,11 +138,12 @@ describe('planInstall', () => {
     expect(plan[0]).toMatchObject({
       title: 'Sodium',
       versionNumber: 's1-num',
+      iconUrl: null,
       file: {
         url: 'https://cdn/s1.jar',
         filename: 's1.jar',
         sha1: 's1-s1',
-        sha512: 's5-s1',
+        hash: { algo: 'sha512', value: 's5-s1' },
         size: 1
       }
     })
@@ -153,7 +169,12 @@ describe('planInstall', () => {
     )
     expect((await planInstall('sodium', c)).items.map((i) => i.projectId)).toEqual([SODIUM.id])
     const installedRoot = ctx([SODIUM], [version('s1', SODIUM.id)], [SODIUM.id])
-    expect(await planInstall('sodium', installedRoot)).toEqual({ items: [], links: [] })
+    expect(await planInstall('sodium', installedRoot)).toEqual({
+      items: [],
+      links: [],
+      manual: [],
+      optional: []
+    })
   })
 
   it('uses a pinned dependency version when compatible, else the best compatible one', async () => {
@@ -290,5 +311,66 @@ describe('planInstall', () => {
   it('does not list a project as needed by itself when it depends on itself', async () => {
     const c = ctx([SODIUM], [version('s1', SODIUM.id, { deps: [req(SODIUM.id)] })])
     expect((await planInstall('sodium', c)).items.map((i) => i.dependencyOf)).toEqual([[]])
+  })
+})
+
+describe('pickVersion with betas', () => {
+  it('takes the newest non-alpha when betas are included', () => {
+    const vs = [version('b2', 'p', { type: 'beta' }), version('r1', 'p')].map(toVersion)
+    expect(pickVersion(vs, false)?.id).toBe('r1')
+    expect(pickVersion(vs, true)?.id).toBe('b2')
+  })
+
+  it('never picks a version without a download url', () => {
+    const [v] = [version('r1', 'p')].map(toVersion)
+    v.file.url = null
+    expect(pickVersion([v], true)).toBeNull()
+  })
+})
+
+describe('planInstall external and manual dependencies', () => {
+  it('reports an external-only project with its link', async () => {
+    const c = ctx([project('P', 'p', 'Pee')], [version('v', 'P')])
+    const ext = { ...toVersion(version('v', 'P')) }
+    ext.file = { ...ext.file, url: null, externalUrl: 'https://example.com/p' }
+    c.provider = { ...c.provider, versions: async () => [ext] }
+    await expect(planInstall('p', c)).rejects.toMatchObject({
+      code: 'CONTENT_EXTERNAL_ONLY',
+      details: { externalUrl: 'https://example.com/p' }
+    })
+  })
+
+  it('lists required dependencies that only have a name as manual', async () => {
+    const c = ctx([project('P', 'p', 'Pee')], [version('v', 'P')])
+    const v = toVersion(version('v', 'P'))
+    v.dependencies = [
+      {
+        projectId: null,
+        versionId: null,
+        kind: 'required',
+        name: 'LuckPerms',
+        externalUrl: 'https://luckperms.net'
+      },
+      { projectId: 'OPT', versionId: null, kind: 'optional', name: null, externalUrl: null }
+    ]
+    c.provider = { ...c.provider, versions: async () => [v] }
+    const plan = await planInstall('p', c)
+    expect(plan.items.map((i) => i.projectId)).toEqual(['P'])
+    expect(plan.manual).toEqual([
+      { title: 'LuckPerms', externalUrl: 'https://luckperms.net', neededBy: 'Pee' }
+    ])
+    expect(plan.optional).toEqual(['OPT'])
+  })
+
+  it('plans the pinned older version when the provider has no version() lookup', async () => {
+    const c = ctx([project('P', 'p', 'Pee')], [version('v2', 'P'), version('v1', 'P')])
+    const newer = toVersion(version('v2', 'P'))
+    const older = toVersion(version('v1', 'P'))
+    c.provider = {
+      label: c.provider.label,
+      project: c.provider.project,
+      versions: async () => [newer, older]
+    }
+    expect((await planInstall('p', c, 'v1')).items[0].versionId).toBe('v1')
   })
 })

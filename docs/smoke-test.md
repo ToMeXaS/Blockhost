@@ -44,3 +44,20 @@ Run on a clean Windows 10/11 machine (no Java installed) using `dist/Blockhost-<
 - [ ] Performance: the chart draws CPU, memory and dashed TPS lines after ~10 seconds, hovering shows a readout, and stopping the server resets the tiles to "—"/Offline and the chart to "Start the server to see performance"
 - [ ] Performance: Task Manager shows one `powershell.exe` child of Blockhost while a server runs and none after all servers stop
 - [ ] Uninstall via Windows Settings removes the app (server folders remain)
+
+## Mods & plugins (multi-source)
+
+- [ ] Paper: chips show Modrinth, Hangar, SpigotMC with counts; toggling a chip re-runs the search.
+- [ ] Install one plugin from each source; each shows its source badge in Installed.
+- [ ] A SpigotMC premium result opens its page in the browser instead of installing.
+- [ ] An externally hosted SpigotMC result opens the browser instead of installing.
+- [ ] A SpigotMC resource that isn't a .jar opens the browser instead of installing.
+- [ ] Category "Chat" + text query: SpigotMC chip says "no matching category".
+- [ ] Open a project: description, links, versions; "Install this version" installs that version.
+- [ ] Fabric: no chip row; install a mod with a dependency (e.g. Sodium → Fabric API) and see "Will also install".
+- [ ] Stop the server: disable a mod (file becomes .jar.disabled), re-enable it.
+- [ ] Update all with at least one update available; summary toast appears.
+- [ ] Remove a mod whose dependency nothing else needs; accept the cleanup prompt; both files gone.
+- [ ] Include beta versions on → update check can offer betas.
+- [ ] Unplug the network: installed list still shows, with "Couldn't check … for updates".
+- [ ] Restart the server: everything installed loads.
